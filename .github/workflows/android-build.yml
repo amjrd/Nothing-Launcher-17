@@ -1,4 +1,4 @@
-name: Lawnchair 16 - Nothing OS Widget Build
+name: Lawnchair 16 - Original Nothing OS Widgets
 
 on:
   workflow_dispatch:
@@ -10,17 +10,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: nothing-widget-build-${{ github.ref }}
+  group: lawnchair-nothing-widgets-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: Build Lawnchair with Nothing Clock Widget
+    name: Build Lawnchair with original Nothing widget sources
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
 
     steps:
-      - name: Checkout project
+      - name: Checkout this repository
         uses: actions/checkout@v4
         with:
           path: project
@@ -32,149 +32,42 @@ jobs:
           ref: 16-dev
           path: lawnchair-src
           submodules: recursive
+          fetch-depth: 1
 
-      - name: Add Nothing Clock and Date Widget
+      - name: Checkout original Nathing OS 5 source
+        uses: actions/checkout@v4
+        with:
+          repository: amjrd/Nathing-os-5
+          ref: main
+          path: nathing-source
+          fetch-depth: 1
+
+      - name: Verify original widget sources
         shell: bash
-        working-directory: lawnchair-src
         run: |
           set -euo pipefail
 
-          mkdir -p lawnchair/src/app/lawnchair/nothing
-          mkdir -p lawnchair/res/layout
-          mkdir -p lawnchair/res/xml
-          mkdir -p lawnchair/res/values
+          SRC="nathing-source/app/src/main/java/com/example"
 
-          cat > lawnchair/src/app/lawnchair/nothing/NothingClockWidget.java <<'EOF'
-          package app.lawnchair.nothing;
+          for file in \
+            "$SRC/ui/components/NothingWidgets.kt" \
+            "$SRC/ui/components/NothingAnalogClockWidget.kt" \
+            "$SRC/ui/components/NosPortWidgets.kt" \
+            "$SRC/model/LauncherModels.kt" \
+            "$SRC/ui/theme/Color.kt" \
+            "$SRC/ui/theme/Theme.kt" \
+            "$SRC/ui/theme/Type.kt" \
+            "$SRC/service/SystemPortHelper.kt" \
+            "$SRC/service/SystemWidgetHostManager.kt" \
+            "$SRC/util/VibrationHelper.kt"; do
 
-          import android.appwidget.AppWidgetManager;
-          import android.appwidget.AppWidgetProvider;
-          import android.content.Context;
-          import android.widget.RemoteViews;
+            if [ ! -f "$file" ]; then
+              echo "::error::Missing original source file: $file"
+              exit 1
+            fi
+          done
 
-          import com.android.launcher3.R;
-
-          public final class NothingClockWidget extends AppWidgetProvider {
-
-              @Override
-              public void onUpdate(
-                      Context context,
-                      AppWidgetManager manager,
-                      int[] appWidgetIds) {
-
-                  for (int id : appWidgetIds) {
-                      RemoteViews views = new RemoteViews(
-                              context.getPackageName(),
-                              R.layout.widget_nothing_clock
-                      );
-
-                      manager.updateAppWidget(id, views);
-                  }
-              }
-          }
-          EOF
-
-          cat > lawnchair/res/layout/widget_nothing_clock.xml <<'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <LinearLayout
-              xmlns:android="http://schemas.android.com/apk/res/android"
-              android:layout_width="match_parent"
-              android:layout_height="match_parent"
-              android:orientation="vertical"
-              android:gravity="center_vertical"
-              android:paddingStart="16dp"
-              android:paddingEnd="16dp"
-              android:paddingTop="8dp"
-              android:paddingBottom="8dp">
-
-              <TextClock
-                  android:id="@+id/nothing_clock_time"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:format12Hour="h:mm"
-                  android:format24Hour="HH:mm"
-                  android:fontFamily="sans-serif-light"
-                  android:textSize="48sp"
-                  android:letterSpacing="0.02"
-                  android:textColor="?android:attr/textColorPrimary"
-                  android:includeFontPadding="false" />
-
-              <TextClock
-                  android:id="@+id/nothing_clock_date"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:format12Hour="EEEE, d MMMM"
-                  android:format24Hour="EEEE, d MMMM"
-                  android:fontFamily="sans-serif-medium"
-                  android:textSize="14sp"
-                  android:textColor="?android:attr/textColorSecondary"
-                  android:includeFontPadding="false"
-                  android:layout_marginTop="4dp" />
-
-          </LinearLayout>
-          EOF
-
-          cat > lawnchair/res/xml/nothing_clock_widget_info.xml <<'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <appwidget-provider
-              xmlns:android="http://schemas.android.com/apk/res/android"
-              android:minWidth="180dp"
-              android:minHeight="90dp"
-              android:minResizeWidth="140dp"
-              android:minResizeHeight="70dp"
-              android:resizeMode="horizontal|vertical"
-              android:widgetCategory="home_screen"
-              android:initialLayout="@layout/widget_nothing_clock"
-              android:description="@string/nothing_clock_widget_description" />
-          EOF
-
-          cat > lawnchair/res/values/nothing_clock_widget_strings.xml <<'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <string name="nothing_clock_widget_label">Nothing Clock</string>
-              <string name="nothing_clock_widget_description">Minimal Nothing-style clock and date</string>
-          </resources>
-          EOF
-
-          python3 <<'PY'
-          from pathlib import Path
-
-          manifest = Path("quickstep/AndroidManifest-launcher.xml")
-          text = manifest.read_text(encoding="utf-8")
-
-          receiver = """
-              <receiver
-                  android:name="app.lawnchair.nothing.NothingClockWidget"
-                  android:label="@string/nothing_clock_widget_label"
-                  android:exported="true"
-                  android:permission="android.permission.BIND_APPWIDGET">
-                  <intent-filter>
-                      <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                  </intent-filter>
-                  <meta-data
-                      android:name="android.appwidget.provider"
-                      android:resource="@xml/nothing_clock_widget_info" />
-              </receiver>
-          """
-
-          if "app.lawnchair.nothing.NothingClockWidget" in text:
-              print("Nothing Clock receiver already exists.")
-          else:
-              marker = "</application>"
-              if marker not in text:
-                  raise SystemExit(
-                      "ERROR: Cannot find </application> in launcher manifest."
-                  )
-              text = text.replace(marker, receiver + "\n" + marker, 1)
-              manifest.write_text(text, encoding="utf-8")
-              print("Nothing Clock receiver registered.")
-
-          print("Manifest:", manifest)
-          PY
-
-          test -f lawnchair/src/app/lawnchair/nothing/NothingClockWidget.java
-          test -f lawnchair/res/layout/widget_nothing_clock.xml
-          test -f lawnchair/res/xml/nothing_clock_widget_info.xml
+          echo "Original Nothing widget source files are present."
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -185,35 +78,93 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Verify Gradle wrapper
-        working-directory: lawnchair-src
+      - name: Add original Nothing widget source to Lawnchair
+        shell: bash
         run: |
-          test -f gradlew
-          chmod +x gradlew
+          set -euo pipefail
 
-      - name: Build Lawnchair
+          SRC="nathing-source/app/src/main/java/com/example"
+          DST="lawnchair-src/lawnchair/src/com/example"
+
+          mkdir -p \
+            "$DST/ui/components" \
+            "$DST/ui/theme" \
+            "$DST/model" \
+            "$DST/service" \
+            "$DST/util"
+
+          cp "$SRC/ui/components/NothingWidgets.kt" \
+             "$DST/ui/components/"
+
+          cp "$SRC/ui/components/NothingAnalogClockWidget.kt" \
+             "$DST/ui/components/"
+
+          cp "$SRC/ui/components/NosPortWidgets.kt" \
+             "$DST/ui/components/"
+
+          cp "$SRC/model/LauncherModels.kt" \
+             "$DST/model/"
+
+          cp "$SRC/ui/theme/Color.kt" \
+             "$DST/ui/theme/"
+
+          cp "$SRC/ui/theme/Theme.kt" \
+             "$DST/ui/theme/"
+
+          cp "$SRC/ui/theme/Type.kt" \
+             "$DST/ui/theme/"
+
+          cp "$SRC/service/SystemPortHelper.kt" \
+             "$DST/service/"
+
+          cp "$SRC/service/SystemWidgetHostManager.kt" \
+             "$DST/service/"
+
+          cp "$SRC/util/VibrationHelper.kt" \
+             "$DST/util/"
+
+          echo "Original widget source files copied."
+
+          mkdir -p lawnchair-src/build
+
+          {
+            echo "Nothing OS original widget source report"
+            echo
+            find "$DST" -type f | sort
+            echo
+            echo "Source files copied; runtime integration must be verified."
+          } > lawnchair-src/build/nothing-widget-integration-report.txt
+
+      - name: Validate Lawnchair Gradle wrapper
+        working-directory: lawnchair-src
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f ./gradlew
+          chmod +x ./gradlew
+
+          if [ ! -f settings.gradle.kts ] && \
+             [ ! -f settings.gradle ]; then
+            echo "::error::Gradle settings file is missing."
+            exit 1
+          fi
+
+      - name: Build Lawnchair debug APK
         working-directory: lawnchair-src
         run: |
           ./gradlew \
             --no-daemon \
-            assembleLawnWithQuickstepGithubDebug \
-            --stacktrace
+            --stacktrace \
+            assembleLawnWithQuickstepGithubDebug
 
-      - name: Upload APK
-        if: success()
+      - name: Upload APK and integration report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Lawnchair-NothingOS-Clock-Debug
-          path: lawnchair-src/**/build/outputs/apk/**/*.apk
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: NothingOS-Widget-Build-Logs
+          name: Lawnchair-Nothing-Original-Widget-Sources
           path: |
-            lawnchair-src/**/build/reports/
-          if-no-files-found: ignore
-          retention-days: 7
+            lawnchair-src/**/build/outputs/apk/**/*.apk
+            lawnchair-src/build/nothing-widget-integration-report.txt
+          if-no-files-found: warn
+          retention-days: 14
