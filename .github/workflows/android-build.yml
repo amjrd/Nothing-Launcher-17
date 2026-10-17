@@ -47,12 +47,12 @@ jobs:
           token: ${{ secrets.GH_PAT || github.token }}
           fetch-depth: 1
 
-      - name: Checkout SushiiReboot Nothing Clock
+      - name: Checkout n0w Calendar Source
         uses: actions/checkout@v4
         with:
-          repository: SushiiReboot/Nothing-Clock
+          repository: codewec/n0w
           ref: main
-          path: nothing-clock-src
+          path: n0w-src
         continue-on-error: true
 
       - name: Set up Java 21
@@ -80,19 +80,15 @@ jobs:
         shell: bash
         run: |
           set -e
-          echo "=== تحميل خط NDot-57 الرسمي لـ Nothing OS ==="
+          echo "=== تحميل وتثبيت خط NDot-57 الرسمي لـ Nothing OS ==="
 
           ASSETS_DIR="lawnchair-src/lawnchair/src/main/assets/fonts"
           mkdir -p "$ASSETS_DIR"
 
-          # تنزيل خط NDot-57 الأصلي
           curl -sL "https://raw.githubusercontent.com/xeji01/nothingfont/main/Ndot-57.otf" -o "$ASSETS_DIR/ndot57.otf"
 
-          if [ -f "$ASSETS_DIR/ndot57.otf" ]; then
-            echo "تم تنزيل خط NDot-57 الرسمي بنجاح."
-          else
-            echo "تحذير: جاري البحث في مستودع Nothing-Clock..."
-            find nothing-clock-src -name "*.ttf" -o -name "*.otf" -exec cp {} "$ASSETS_DIR/ndot57.otf" \; || true
+          if [ -d "n0w-src/app/src/main/assets" ]; then
+            cp -rn n0w-src/app/src/main/assets/* "$ASSETS_DIR/.." || true
           fi
 
       - name: Sync Nothing OS Code
@@ -122,11 +118,11 @@ jobs:
             done
           fi
 
-      - name: Inject Authentic Nothing OS NDot Widgets
+      - name: Inject Complete Nothing OS & n0w Suite
         shell: bash
         run: |
           set -e
-          echo "=== حقن الودجات الرسمية بخط NDot-57 النقطي الأصلي ==="
+          echo "=== حقن الحزمة الكاملة لودجات Nothing OS و n0w في Lawnchair ==="
 
           DST_CODE="lawnchair-src/lawnchair/src/com/example/ui/components"
           mkdir -p "$DST_CODE"
@@ -142,6 +138,7 @@ jobs:
           import android.content.IntentFilter
           import android.graphics.*
           import android.os.BatteryManager
+          import android.provider.AlarmClock
           import android.widget.RemoteViews
           import java.text.SimpleDateFormat
           import java.util.*
@@ -164,7 +161,7 @@ jobs:
           }
 
           /**
-           * 1. ودجت ساعة Nothing OS النقطية الحقيقية (NDot Digital Clock 4x2)
+           * 1. ساعة Nothing OS النقطية (Nothing NDot Clock 4x2)
            */
           class NothingDigitalClockWidgetProvider : AppWidgetProvider() {
               override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
@@ -184,7 +181,6 @@ jobs:
                       val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                       val canvas = Canvas(bmp)
 
-                      // خلفية داكنة فخمة بنمط Nothing
                       val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F50D0D0D") }
                       canvas.drawRoundRect(RectF(10f, 10f, width - 10f, height - 10f), 52f, 52f, bgPaint)
 
@@ -195,10 +191,8 @@ jobs:
                       }
                       canvas.drawRoundRect(RectF(10f, 10f, width - 10f, height - 10f), 52f, 52f, borderPaint)
 
-                      // خط NDot-57 النقطي الرسمي
                       val ndotFont = NothingFontHelper.getNdotFont(context)
 
-                      // رسم الوقت بنقاط NDot الحقيقية
                       val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
                       val timePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                           typeface = ndotFont
@@ -208,7 +202,6 @@ jobs:
                       }
                       canvas.drawText(timeStr, width / 2f, height / 2f + 15f, timePaint)
 
-                      // رسم التاريخ باللون الأحمر الأيقوني بخط NDot
                       val dateStr = SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(Date()).uppercase()
                       val datePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                           typeface = ndotFont
@@ -219,7 +212,9 @@ jobs:
                       canvas.drawText(dateStr, width / 2f, height / 2f + 95f, datePaint)
 
                       // فتح تطبيق الساعة عند النقر
-                      val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CLOCK)
+                      val intent = Intent(AlarmClock.ACTION_SHOW_ALARMS).apply {
+                          flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                      }
                       val pi = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                       views.setOnClickPendingIntent(imgId, pi)
 
@@ -230,7 +225,128 @@ jobs:
           }
 
           /**
-           * 2. ودجت البطارية الدائري بنقاط Nothing (Nothing Battery Ring 2x2)
+           * 2. ودجت التقويم والجدول اليومي مستوحى من n0w (Nothing Calendar 4x2)
+           */
+          class NothingCalendarWidgetProvider : AppWidgetProvider() {
+              override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+                  for (id in appWidgetIds) updateWidget(context, appWidgetManager, id)
+              }
+
+              companion object {
+                  fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, id: Int) {
+                      val pkg = context.packageName
+                      val layoutId = context.resources.getIdentifier("widget_nothing_container", "layout", pkg)
+                      val imgId = context.resources.getIdentifier("widget_image_view", "id", pkg)
+                      if (layoutId == 0 || imgId == 0) return
+
+                      val views = RemoteViews(pkg, layoutId)
+                      val width = 760
+                      val height = 360
+                      val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                      val canvas = Canvas(bmp)
+
+                      val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F50D0D0D") }
+                      canvas.drawRoundRect(RectF(10f, 10f, width - 10f, height - 10f), 52f, 52f, bgPaint)
+
+                      val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                          color = Color.parseColor("#26FFFFFF")
+                          style = Paint.Style.STROKE
+                          strokeWidth = 3f
+                      }
+                      canvas.drawRoundRect(RectF(10f, 10f, width - 10f, height - 10f), 52f, 52f, borderPaint)
+
+                      val ndotFont = NothingFontHelper.getNdotFont(context)
+                      val cal = Calendar.getInstance()
+
+                      val dayNum = SimpleDateFormat("dd", Locale.getDefault()).format(cal.time)
+                      val monthStr = SimpleDateFormat("MMMM", Locale.getDefault()).format(cal.time).uppercase()
+                      val weekDay = SimpleDateFormat("EEEE", Locale.getDefault()).format(cal.time).uppercase()
+
+                      val dayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                          typeface = ndotFont
+                          color = Color.WHITE
+                          textSize = 110f
+                      }
+                      canvas.drawText(dayNum, 60f, 160f, dayPaint)
+
+                      val monthPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                          typeface = ndotFont
+                          color = Color.parseColor("#D71921")
+                          textSize = 32f
+                      }
+                      canvas.drawText(monthStr, 60f, 225f, monthPaint)
+
+                      val weekPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                          typeface = ndotFont
+                          color = Color.parseColor("#B3FFFFFF")
+                          textSize = 26f
+                      }
+                      canvas.drawText(weekDay, 60f, 275f, weekPaint)
+
+                      val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                          color = Color.parseColor("#26FFFFFF")
+                          strokeWidth = 2f
+                      }
+                      canvas.drawLine(280f, 40f, 280f, height - 40f, linePaint)
+
+                      val days = arrayOf("M", "T", "W", "T", "F", "S", "S")
+                      val curDayOfWeek = (cal.get(Calendar.DAY_OF_WEEK) + 5) % 7
+                      val startX = 320f
+                      val spacing = 58f
+
+                      for (i in 0 until 7) {
+                          val x = startX + i * spacing
+                          val isToday = (i == curDayOfWeek)
+
+                          if (isToday) {
+                              val dotBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D71921") }
+                              canvas.drawCircle(x + 12f, 100f, 22f, dotBg)
+                          }
+
+                          val textP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                              typeface = ndotFont
+                              color = if (isToday) Color.WHITE else Color.parseColor("#80FFFFFF")
+                              textSize = 28f
+                              textAlign = Paint.Align.CENTER
+                          }
+                          canvas.drawText(days[i], x + 12f, 110f, textP)
+
+                          val eventDot = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                              color = if (isToday) Color.WHITE else Color.parseColor("#40FFFFFF")
+                          }
+                          canvas.drawCircle(x + 12f, 140f, 4f, eventDot)
+                      }
+
+                      val agendaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                          typeface = ndotFont
+                          color = Color.WHITE
+                          textSize = 30f
+                      }
+                      canvas.drawText("NO UPCOMING EVENTS", 320f, 230f, agendaPaint)
+
+                      val allClearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                          typeface = ndotFont
+                          color = Color.parseColor("#D71921")
+                          textSize = 22f
+                      }
+                      canvas.drawText("• YOU ARE ALL CAUGHT UP", 320f, 275f, allClearPaint)
+
+                      // فتح تطبيق التقويم عند النقر
+                      val intent = Intent(Intent.ACTION_MAIN).apply {
+                          addCategory(Intent.CATEGORY_APP_CALENDAR)
+                          flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                      }
+                      val pi = PendingIntent.getActivity(context, 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                      views.setOnClickPendingIntent(imgId, pi)
+
+                      views.setImageViewBitmap(imgId, bmp)
+                      appWidgetManager.updateAppWidget(id, views)
+                  }
+              }
+          }
+
+          /**
+           * 3. ودجت البطارية الدائري (Nothing Battery Ring 2x2)
            */
           class NothingBatteryWidgetProvider : AppWidgetProvider() {
               override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
@@ -259,7 +375,6 @@ jobs:
                       }
                       canvas.drawRoundRect(RectF(10f, 10f, size - 10f, size - 10f), 52f, 52f, borderPaint)
 
-                      // نسبة البطارية الحقيقية
                       val batteryStatus: Intent? = IntentFilter(Intent.ACTION_BATTERY_CHANGED).let { filter ->
                           context.applicationContext.registerReceiver(null, filter)
                       }
@@ -272,7 +387,6 @@ jobs:
                       val totalDots = 24
                       val filledDots = (totalDots * (batteryPct / 100f)).toInt()
 
-                      // رسم حلقة النقاط الخارجية
                       for (i in 0 until totalDots) {
                           val angle = Math.toRadians((i * (360.0 / totalDots) - 90).toDouble())
                           val dx = center + ringRadius * cos(angle).toFloat()
@@ -288,10 +402,7 @@ jobs:
                           canvas.drawCircle(dx, dy, 7.5f, dotPaint)
                       }
 
-                      // خط NDot
                       val ndotFont = NothingFontHelper.getNdotFont(context)
-
-                      // كتابة النسبة المئوية بخط النقاط
                       val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                           typeface = ndotFont
                           color = Color.WHITE
@@ -308,6 +419,13 @@ jobs:
                       }
                       canvas.drawText("BATTERY", center, center + 75f, labelPaint)
 
+                      // فتح إعدادات البطارية عند النقر
+                      val intent = Intent(Intent.ACTION_POWER_USAGE_SUMMARY).apply {
+                          flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                      }
+                      val pi = PendingIntent.getActivity(context, 2, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                      views.setOnClickPendingIntent(imgId, pi)
+
                       views.setImageViewBitmap(imgId, bmp)
                       appWidgetManager.updateAppWidget(id, views)
                   }
@@ -315,7 +433,7 @@ jobs:
           }
 
           /**
-           * 3. ودجت الساعة التناظرية الأصلية (Nothing Analog Dial 2x2)
+           * 4. ودجت الساعة التناظرية الفخمة (Nothing Analog Dial 2x2)
            */
           class NothingAnalogClockWidgetProvider : AppWidgetProvider() {
               override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
@@ -345,7 +463,6 @@ jobs:
                       }
                       canvas.drawCircle(center, center, radius, border)
 
-                      // نقاط الدقائق الـ 60
                       for (i in 0 until 60) {
                           val angle = Math.toRadians((i * 6).toDouble())
                           val dx = center + (radius - 22f) * sin(angle).toFloat()
@@ -368,16 +485,20 @@ jobs:
                       val hAngle = Math.toRadians(((h + m / 60f) * 30).toDouble())
                       val mAngle = Math.toRadians((m * 6).toDouble())
 
-                      // عقرب الساعات الأبيض
                       val hp = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; strokeWidth = 10f; strokeCap = Paint.Cap.ROUND }
                       canvas.drawLine(center, center, center + 95f * sin(hAngle).toFloat(), center - 95f * cos(hAngle).toFloat(), hp)
 
-                      // عقرب الدقائق الأحمر
                       val mp = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D71921"); strokeWidth = 6f; strokeCap = Paint.Cap.ROUND }
                       canvas.drawLine(center, center, center + 140f * sin(mAngle).toFloat(), center - 140f * cos(mAngle).toFloat(), mp)
 
                       canvas.drawCircle(center, center, 10f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
                       canvas.drawCircle(center, center, 4f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D71921") })
+
+                      val intent = Intent(AlarmClock.ACTION_SHOW_ALARMS).apply {
+                          flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                      }
+                      val pi = PendingIntent.getActivity(context, 3, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                      views.setOnClickPendingIntent(imgId, pi)
 
                       views.setImageViewBitmap(imgId, bmp)
                       appWidgetManager.updateAppWidget(id, views)
@@ -386,7 +507,7 @@ jobs:
           }
           EOF
 
-          # 2. إنشاء ملفات الـ XML
+          # 2. إنشاء ملفات الـ XML للودجات الأربعة
           LAWN_RES="lawnchair-src/lawnchair/res"
           [ ! -d "$LAWN_RES" ] && LAWN_RES="lawnchair-src/lawnchair/src/main/res"
 
@@ -407,6 +528,19 @@ jobs:
           EOF
 
           cat << 'EOF' > "$LAWN_RES/xml/nothing_digital_clock_info.xml"
+          <?xml version="1.0" encoding="utf-8"?>
+          <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+              android:minWidth="240dp"
+              android:minHeight="110dp"
+              android:targetCellWidth="4"
+              android:targetCellHeight="2"
+              android:updatePeriodMillis="60000"
+              android:initialLayout="@layout/widget_nothing_container"
+              android:resizeMode="horizontal|vertical"
+              android:widgetCategory="home_screen" />
+          EOF
+
+          cat << 'EOF' > "$LAWN_RES/xml/nothing_calendar_info.xml"
           <?xml version="1.0" encoding="utf-8"?>
           <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
               android:minWidth="240dp"
@@ -445,7 +579,7 @@ jobs:
               android:widgetCategory="home_screen" />
           EOF
 
-          # 3. تسجيل الودجات في AndroidManifest.xml
+          # 3. تسجيل الودجات الأربعة في AndroidManifest.xml
           MANIFEST=$(find lawnchair-src/lawnchair -name "AndroidManifest.xml" | head -n 1)
           if [ -f "$MANIFEST" ]; then
             python3 -c '
@@ -456,7 +590,7 @@ jobs:
               content = f.read()
 
           receivers = """
-              <!-- Nothing OS Real NDot Widgets Suite -->
+              <!-- Nothing OS & n0w Complete Suite -->
               <receiver android:name="com.example.ui.components.NothingDigitalClockWidgetProvider"
                   android:label="Nothing NDot Clock (4x2)"
                   android:exported="true">
@@ -466,6 +600,17 @@ jobs:
                   <meta-data
                       android:name="android.appwidget.provider"
                       android:resource="@xml/nothing_digital_clock_info" />
+              </receiver>
+
+              <receiver android:name="com.example.ui.components.NothingCalendarWidgetProvider"
+                  android:label="Nothing n0w Calendar &amp; Agenda (4x2)"
+                  android:exported="true">
+                  <intent-filter>
+                      <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                  </intent-filter>
+                  <meta-data
+                      android:name="android.appwidget.provider"
+                      android:resource="@xml/nothing_calendar_info" />
               </receiver>
 
               <receiver android:name="com.example.ui.components.NothingBatteryWidgetProvider"
@@ -495,7 +640,7 @@ jobs:
               content = content.replace("</application>", receivers + "\n</application>")
               with open(path, "w", encoding="utf-8") as f:
                   f.write(content)
-              print("تم حقن ودجات NDot بنجاح.")
+              print("تم حقن ودجات Nothing OS و n0w بنجاح.")
           ' "$MANIFEST"
           fi
 
@@ -521,7 +666,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Lawnchair-16-Nothing-NDot-APK
+          name: Lawnchair-16-Nothing-Suite-APK
           path: lawnchair-src/**/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 14
