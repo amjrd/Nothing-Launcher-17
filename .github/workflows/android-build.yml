@@ -56,7 +56,6 @@ jobs:
       - name: Accept Android SDK Licenses
         shell: bash
         run: |
-          echo "قبول تراخيص Android SDK المسبقة في الخادم..."
           mkdir -p "$ANDROID_HOME/licenses" || true
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses 2>/dev/null || true
 
@@ -95,7 +94,7 @@ jobs:
           DST_CODE="lawnchair-src/lawnchair/src/com/example/ui/components"
           mkdir -p "$DST_CODE"
 
-          # 1. كود Kotlin للودجات
+          # 1. إنشاء ملف NothingWidgetProviders.kt
           cat << 'EOF' > "$DST_CODE/NothingWidgetProviders.kt"
           package com.example.ui.components
 
@@ -133,7 +132,7 @@ jobs:
                       canvas.drawText(time, 300f, 160f, textPaint)
 
                       val date = SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(Date()).uppercase()
-                      val datePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D71921"); textSize = 28f; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                      val datePaint = Paint(Paint.ANTI_FLAG).apply { color = Color.parseColor("#D71921"); textSize = 28f; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                       canvas.drawText(date, 300f, 225f, datePaint)
 
                       views.setImageViewBitmap(imgId, bmp)
@@ -181,7 +180,7 @@ jobs:
           }
           EOF
 
-          # 2. ملفات الـ XML للتصميم والتحديد
+          # 2. إنشاء ملفات الـ XML
           LAWN_RES="lawnchair-src/lawnchair/res"
           [ ! -d "$LAWN_RES" ] && LAWN_RES="lawnchair-src/lawnchair/src/main/res"
 
@@ -227,22 +226,52 @@ jobs:
               android:widgetCategory="home_screen" />
           EOF
 
-          # 3. تسجيل الودجات داخل AndroidManifest.xml
+          # 3. إدراج المكونات داخل AndroidManifest.xml باستخدام Python بأمان
           MANIFEST=$(find lawnchair-src/lawnchair -name "AndroidManifest.xml" | head -n 1)
           if [ -f "$MANIFEST" ]; then
-            echo "تحديث ملف Manifest: $MANIFEST"
-            WIDGET_RECEIVERS='
-                  <receiver android:name="com.example.ui.components.NothingDigitalClockWidgetProvider" android:label="Nothing Dot Clock" android:exported="true">
-                      <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
-                      <meta-data android:name="android.appwidget.provider" android:resource="@xml/nothing_digital_clock_info" />
-                  </receiver>
-                  <receiver android:name="com.example.ui.components.NothingAnalogClockWidgetProvider" android:label="Nothing Analog Clock" android:exported="true">
-                      <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
-                      <meta-data android:name="android.appwidget.provider" android:resource="@xml/nothing_analog_clock_info" />
-                  </receiver>
-            '
-            sed -i "s|</application>|$WIDGET_RECEIVERS</application>|" "$MANIFEST"
+            echo "تحديث ملف Manifest بأمان: $MANIFEST"
+            python3 -c '
+          import sys
+
+          path = sys.argv[1]
+          with open(path, "r", encoding="utf-8") as f:
+              content = f.read()
+
+          receivers = """
+              <!-- Nothing OS Widgets -->
+              <receiver android:name="com.example.ui.components.NothingDigitalClockWidgetProvider"
+                  android:label="Nothing Dot Clock"
+                  android:exported="true">
+                  <intent-filter>
+                      <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                  </intent-filter>
+                  <meta-data
+                      android:name="android.appwidget.provider"
+                      android:resource="@xml/nothing_digital_clock_info" />
+              </receiver>
+              <receiver android:name="com.example.ui.components.NothingAnalogClockWidgetProvider"
+                  android:label="Nothing Analog Clock"
+                  android:exported="true">
+                  <intent-filter>
+                      <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                  </intent-filter>
+                  <meta-data
+                      android:name="android.appwidget.provider"
+                      android:resource="@xml/nothing_analog_clock_info" />
+              </receiver>
+          """
+
+          if "</application>" in content:
+              content = content.replace("</application>", receivers + "\n</application>")
+              with open(path, "w", encoding="utf-8") as f:
+                  f.write(content)
+              print("تم حقن الودجات في Manifest بنجاح تام.")
+          else:
+              print("تحذير: لم يتم العثور على وسم </application>")
+          ' "$MANIFEST"
           fi
+
+          echo "=== اكتمال مرحلة التجهيز بنجاح ==="
 
       - name: Build Launcher APK
         working-directory: lawnchair-src
