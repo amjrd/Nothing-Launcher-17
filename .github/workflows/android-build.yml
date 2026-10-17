@@ -1,4 +1,4 @@
-name: Android Launcher Build
+name: Nothing Launcher 17 - Build
 
 on:
   push:
@@ -18,33 +18,80 @@ concurrency:
 
 jobs:
   build:
-    name: Build Debug APK
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Inspect project structure
+        shell: bash
+        run: |
+          echo "Repository root:"
+          pwd
+
+          echo "Root files:"
+          ls -la
+
+          echo "Gradle files:"
+          find . -maxdepth 5 \
+            \( -name gradlew \
+            -o -name gradlew.bat \
+            -o -name gradle-wrapper.properties \
+            -o -name settings.gradle \
+            -o -name settings.gradle.kts \
+            -o -name build.gradle \
+            -o -name build.gradle.kts \) \
+            -not -path '*/.git/*' \
+            -print
+
+      - name: Locate Gradle Wrapper
+        id: wrapper
+        shell: bash
+        run: |
+          WRAPPER="$(find . \
+            -type f \
+            -name gradlew \
+            -not -path './.git/*' \
+            -print -quit)"
+
+          if [ -z "$WRAPPER" ]; then
+            echo "::error::Gradle Wrapper gradlew was not found."
+            echo "The project needs a valid Gradle Wrapper or another verified build setup."
+            exit 1
+          fi
+
+          WRAPPER_DIR="$(dirname "$WRAPPER")"
+
+          echo "wrapper=$WRAPPER" >> "$GITHUB_OUTPUT"
+          echo "wrapper_dir=$WRAPPER_DIR" >> "$GITHUB_OUTPUT"
+
+          chmod +x "$WRAPPER"
+
+          echo "Gradle Wrapper found: $WRAPPER"
+
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Build Debug APK
+        working-directory: ${{ steps.wrapper.outputs.wrapper_dir }}
+        shell: bash
+        run: |
+          "${GITHUB_WORKSPACE}/${{ steps.wrapper.outputs.wrapper }}" \
+            --no-daemon \
+            :app:assembleDebug \
+            --stacktrace
 
-      - name: Grant execute permission
-        run: chmod +x gradlew
-
-      - name: Build launcher
-        run: ./gradlew :app:assembleDebug --stacktrace
-
-      - name: Upload debug APK
+      - name: Upload Debug APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Nothing-Launcher-17-debug
-          path: app/build/outputs/apk/debug/*.apk
+          path: |
+            **/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
