@@ -20,14 +20,12 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      # 1. جلب المستودع الحالي
       - name: Checkout project
         uses: actions/checkout@v4
         with:
           path: project
 
-      # 2. جلب Lawnchair 16-dev
-      - name: Checkout Lawnchair
+      - name: Checkout Lawnchair 16-dev
         uses: actions/checkout@v4
         with:
           repository: LawnchairLauncher/lawnchair
@@ -36,7 +34,6 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      # 3. جلب المصدر الأصلي لـ Nathing OS 5
       - name: Checkout original Nathing OS 5
         uses: actions/checkout@v4
         with:
@@ -45,19 +42,16 @@ jobs:
           path: nathing-source
           fetch-depth: 1
 
-      # 4. إعداد Java
       - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
           distribution: zulu
           java-version: '21'
 
-      # 5. إعداد Gradle
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # 6. فحص ملفات المصدر الأصلي
-      - name: Verify original Nothing widgets
+      - name: Verify original Nothing widget sources
         shell: bash
         run: |
           set -euo pipefail
@@ -68,6 +62,7 @@ jobs:
             "ui/components/NothingWidgets.kt"
             "ui/components/NothingAnalogClockWidget.kt"
             "ui/components/NosPortWidgets.kt"
+            "ui/components/DotMatrix.kt"
             "model/LauncherModels.kt"
             "service/SystemPortHelper.kt"
             "service/SystemWidgetHostManager.kt"
@@ -82,12 +77,12 @@ jobs:
               echo "::error::Original source file not found: $SRC/$file"
               exit 1
             fi
+
             echo "FOUND: $SRC/$file"
           done
 
           echo "All required original source files were found."
 
-      # 7. نسخ ملفات Widgets الأصلية
       - name: Copy original Nothing widget sources
         shell: bash
         run: |
@@ -103,6 +98,7 @@ jobs:
             "$DST/service" \
             "$DST/util"
 
+          # Original widgets
           cp "$SRC/ui/components/NothingWidgets.kt" \
              "$DST/ui/components/"
 
@@ -112,6 +108,11 @@ jobs:
           cp "$SRC/ui/components/NosPortWidgets.kt" \
              "$DST/ui/components/"
 
+          # Required original dot-matrix implementation
+          cp "$SRC/ui/components/DotMatrix.kt" \
+             "$DST/ui/components/"
+
+          # Supporting source files
           cp "$SRC/model/LauncherModels.kt" \
              "$DST/model/"
 
@@ -133,46 +134,20 @@ jobs:
           cp "$SRC/util/VibrationHelper.kt" \
              "$DST/util/"
 
-          echo "Original source files copied."
+          echo "Original widget sources and DotMatrix.kt copied."
 
-      # 8. حفظ تقرير الملفات
-      - name: Create integration report
-        if: always()
-        shell: bash
-        run: |
-          mkdir -p diagnostics
+          # Verify the missing declarations are now present
+          grep -n -E \
+            'fun DotMatrixClock|fun DotMatrixString' \
+            "$DST/ui/components/DotMatrix.kt"
 
-          {
-            echo "Nothing OS widget integration report"
-            echo "===================================="
-            echo
-            echo "Original source repository:"
-            echo "amjrd/Nathing-os-5"
-            echo
-            echo "Target repository:"
-            echo "LawnchairLauncher/lawnchair, branch 16-dev"
-            echo
-            echo "Copied Kotlin source files:"
-            if [ -d lawnchair-src/lawnchair/src/com/example ]; then
-              find lawnchair-src/lawnchair/src/com/example \
-                -type f -name '*.kt' | sort
-            fi
-            echo
-            echo "Note:"
-            echo "Copying files does not by itself complete runtime integration."
-          } > diagnostics/widget-integration-report.txt
-
-      # 9. التحقق من Gradle
       - name: Verify Gradle project
         working-directory: lawnchair-src
         shell: bash
         run: |
           set -euo pipefail
 
-          if [ ! -f gradlew ]; then
-            echo "::error::Gradle wrapper not found."
-            exit 1
-          fi
+          test -f gradlew
 
           if [ ! -f settings.gradle.kts ] && \
              [ ! -f settings.gradle ]; then
@@ -182,12 +157,11 @@ jobs:
 
           chmod +x gradlew
 
-      # 10. بناء التطبيق مع تسجيل جميع الأخطاء
       - name: Build and capture diagnostics
         working-directory: lawnchair-src
         shell: bash
         run: |
-          set +e
+          set -o pipefail
 
           ./gradlew \
             --no-daemon \
@@ -196,26 +170,34 @@ jobs:
             assembleLawnWithQuickstepGithubDebug \
             2>&1 | tee "$GITHUB_WORKSPACE/build-full.log"
 
-          BUILD_EXIT_CODE=${PIPESTATUS[0]}
+      - name: Create build summary
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p diagnostics
 
-          echo "$BUILD_EXIT_CODE" \
-            > "$GITHUB_WORKSPACE/diagnostics/build-exit-code.txt"
+          if [ -f build-full.log ]; then
+            {
+              echo "## Build diagnostics"
+              echo
+              echo "### Compiler errors"
+              grep -n -E \
+                '(^e: |error:|Unresolved reference|What went wrong|Compilation error|FAILURE: Build failed)' \
+                build-full.log | tail -n 100 || true
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            cp build-full.log diagnostics/
+          fi
 
           {
-            echo "## Build result"
+            echo "Nothing OS widget source report"
             echo
-            echo "Gradle exit code: $BUILD_EXIT_CODE"
+            echo "Original dot-matrix source: DotMatrix.kt"
+            echo "Expected declarations: DotMatrixClock, DotMatrixString"
             echo
-            echo "## Compiler errors"
-            grep -n -E \
-              '(^e: |error:|Unresolved reference|What went wrong|Compilation error|FAILURE: Build failed)' \
-              "$GITHUB_WORKSPACE/build-full.log" \
-              | tail -n 100 || true
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "Source copying is not proof of runtime integration."
+          } > diagnostics/widget-integration-report.txt
 
-          exit "$BUILD_EXIT_CODE"
-
-      # 11. رفع APK إذا نجح البناء
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
@@ -225,14 +207,11 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      # 12. رفع سجل البناء حتى عند الفشل
       - name: Upload build diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Nothing-Launcher-Build-Diagnostics
-          path: |
-            build-full.log
-            diagnostics/
+          path: diagnostics/
           if-no-files-found: warn
           retention-days: 14
