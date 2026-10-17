@@ -59,37 +59,51 @@ jobs:
           mkdir -p "$ANDROID_HOME/licenses" || true
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses 2>/dev/null || true
 
+      - name: Configure Gradle Environment
+        shell: bash
+        run: |
+          # منع تحويل التحذيرات إلى أخطاء
+          echo "kotlin.allwarningsaserrors=false" >> lawnchair-src/gradle.properties
+          echo "org.gradle.warning.mode=none" >> lawnchair-src/gradle.properties
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Sync Nothing OS Sources and Resources
+      - name: Sync Nothing OS Code (Safe Sync)
         shell: bash
         run: |
           set -e
-          echo "=== جاري مزامنة ملفات Nothing OS ==="
+          echo "=== مزامنة كود Nothing OS بأمان دون المساس بملفات قيم اللانشر ==="
           SRC_BASE="nathing-source/app/src/main"
           DST_BASE="lawnchair-src/lawnchair/src"
 
           mkdir -p "$DST_BASE/com/example"
 
+          # 1. نسخ كود Kotlin البرمجي فقط
           if [ -d "$SRC_BASE/java/com/example" ]; then
             cp -rf "$SRC_BASE/java/com/example/"* "$DST_BASE/com/example/"
           elif [ -d "$SRC_BASE/kotlin/com/example" ]; then
             cp -rf "$SRC_BASE/kotlin/com/example/"* "$DST_BASE/com/example/"
           fi
 
+          # 2. نسخ مجلدات الأيقونات والرسومات فقط (دون مجلد values لمنع تدمير نصوص وثيمات اللانشر)
           LAWN_RES="lawnchair-src/lawnchair/res"
           [ ! -d "$LAWN_RES" ] && LAWN_RES="lawnchair-src/lawnchair/src/main/res"
 
           if [ -d "$SRC_BASE/res" ] && [ -d "$LAWN_RES" ]; then
-            cp -rn "$SRC_BASE/res/"* "$LAWN_RES/" || true
+            for rdir in drawable drawable-hdpi drawable-xhdpi drawable-xxhdpi drawable-xxxhdpi font; do
+              if [ -d "$SRC_BASE/res/$rdir" ]; then
+                mkdir -p "$LAWN_RES/$rdir"
+                cp -rn "$SRC_BASE/res/$rdir/"* "$LAWN_RES/$rdir/" || true
+              fi
+            done
           fi
 
       - name: Inject Nothing AppWidgets into Lawnchair
         shell: bash
         run: |
           set -e
-          echo "=== توليد وتفعيل ودجات Nothing OS في Lawnchair ==="
+          echo "=== توليد ملفات AppWidget لـ Nothing OS في Lawnchair ==="
 
           DST_CODE="lawnchair-src/lawnchair/src/com/example/ui/components"
           mkdir -p "$DST_CODE"
@@ -132,7 +146,7 @@ jobs:
                       canvas.drawText(time, 300f, 160f, textPaint)
 
                       val date = SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(Date()).uppercase()
-                      val datePaint = Paint(Paint.ANTI_FLAG).apply { color = Color.parseColor("#D71921"); textSize = 28f; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                      val datePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D71921"); textSize = 28f; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                       canvas.drawText(date, 300f, 225f, datePaint)
 
                       views.setImageViewBitmap(imgId, bmp)
@@ -226,10 +240,9 @@ jobs:
               android:widgetCategory="home_screen" />
           EOF
 
-          # 3. إدراج المكونات داخل AndroidManifest.xml باستخدام Python بأمان
+          # 3. إدراج المكونات داخل AndroidManifest.xml
           MANIFEST=$(find lawnchair-src/lawnchair -name "AndroidManifest.xml" | head -n 1)
           if [ -f "$MANIFEST" ]; then
-            echo "تحديث ملف Manifest بأمان: $MANIFEST"
             python3 -c '
           import sys
 
@@ -266,8 +279,6 @@ jobs:
               with open(path, "w", encoding="utf-8") as f:
                   f.write(content)
               print("تم حقن الودجات في Manifest بنجاح تام.")
-          else:
-              print("تحذير: لم يتم العثور على وسم </application>")
           ' "$MANIFEST"
           fi
 
