@@ -15,7 +15,6 @@ concurrency:
 
 env:
   GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dorg.gradle.daemon=false"
-  ANDROID_HOME: "/usr/local/lib/android/sdk"
 
 jobs:
   build:
@@ -53,12 +52,8 @@ jobs:
           distribution: zulu
           java-version: "21"
 
-      - name: Accept Android SDK Licenses
-        shell: bash
-        run: |
-          echo "قبول تراخيص Android SDK المسبقة في الخادم..."
-          mkdir -p "$ANDROID_HOME/licenses" || true
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses 2>/dev/null || true
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -67,12 +62,12 @@ jobs:
         shell: bash
         run: |
           set -e
-          echo "=== جاري مزامنة ملفات Nothing OS ==="
           SRC_BASE="nathing-source/app/src/main"
           DST_BASE="lawnchair-src/lawnchair/src"
 
           mkdir -p "$DST_BASE/com/example"
 
+          # نسخ كود الودجات والموارد
           if [ -d "$SRC_BASE/java/com/example" ]; then
             cp -rf "$SRC_BASE/java/com/example/"* "$DST_BASE/com/example/"
           elif [ -d "$SRC_BASE/kotlin/com/example" ]; then
@@ -90,18 +85,20 @@ jobs:
         shell: bash
         run: |
           set -e
-          echo "=== توليد وتفعيل ودجات Nothing OS في Lawnchair ==="
+          echo "=== توليد ملفات الـ AppWidget لـ Nothing OS في Lawnchair ==="
 
           DST_CODE="lawnchair-src/lawnchair/src/com/example/ui/components"
           mkdir -p "$DST_CODE"
 
-          # 1. كود Kotlin للودجات
+          # 1. إنشاء ملف NothingWidgetProviders.kt
           cat << 'EOF' > "$DST_CODE/NothingWidgetProviders.kt"
           package com.example.ui.components
 
+          import android.app.PendingIntent
           import android.appwidget.AppWidgetManager
           import android.appwidget.AppWidgetProvider
           import android.content.Context
+          import android.content.Intent
           import android.graphics.*
           import android.widget.RemoteViews
           import java.text.SimpleDateFormat
@@ -181,7 +178,7 @@ jobs:
           }
           EOF
 
-          # 2. ملفات الـ XML للتصميم والتحديد
+          # 2. إنشاء مجلدات وملفات الموارد (XML)
           LAWN_RES="lawnchair-src/lawnchair/res"
           [ ! -d "$LAWN_RES" ] && LAWN_RES="lawnchair-src/lawnchair/src/main/res"
 
@@ -227,10 +224,10 @@ jobs:
               android:widgetCategory="home_screen" />
           EOF
 
-          # 3. تسجيل الودجات داخل AndroidManifest.xml
+          # 3. إدراج المكونات داخل AndroidManifest.xml
           MANIFEST=$(find lawnchair-src/lawnchair -name "AndroidManifest.xml" | head -n 1)
           if [ -f "$MANIFEST" ]; then
-            echo "تحديث ملف Manifest: $MANIFEST"
+            echo "تعديل المانيفست في: $MANIFEST"
             WIDGET_RECEIVERS='
                   <receiver android:name="com.example.ui.components.NothingDigitalClockWidgetProvider" android:label="Nothing Dot Clock" android:exported="true">
                       <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
@@ -241,8 +238,11 @@ jobs:
                       <meta-data android:name="android.appwidget.provider" android:resource="@xml/nothing_analog_clock_info" />
                   </receiver>
             '
+            # إدراج قبل نهاية </application>
             sed -i "s|</application>|$WIDGET_RECEIVERS</application>|" "$MANIFEST"
           fi
+
+          echo "=== تم حقن الودجات وتجهيزها بنجاح ==="
 
       - name: Build Launcher APK
         working-directory: lawnchair-src
@@ -259,7 +259,7 @@ jobs:
             TASK="assembleDebug"
           fi
 
-          echo "المهمة الجاري تنفيذها: $TASK"
+          echo "تنفيذ المهمة: $TASK"
           ./gradlew --no-daemon --stacktrace --console=plain $TASK 2>&1 | tee "$GITHUB_WORKSPACE/build-full.log"
 
       - name: Upload Launcher APK
@@ -271,7 +271,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload Build Diagnostics
+      - name: Upload Diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
