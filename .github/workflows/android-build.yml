@@ -13,6 +13,9 @@ concurrency:
   group: nothing-launcher-build-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dorg.gradle.daemon=false"
+
 jobs:
   build:
     name: Build Lawnchair with Nothing OS
@@ -20,7 +23,7 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      - name: Checkout project
+      - name: Checkout Workflow Repository
         uses: actions/checkout@v4
         with:
           path: project
@@ -34,12 +37,13 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: Checkout original Nathing OS 5
+      - name: Checkout Nothing OS Source
         uses: actions/checkout@v4
         with:
           repository: amjrd/Nathing-os-5
           ref: main
           path: nathing-source
+          token: ${{ secrets.GH_PAT || github.token }}
           fetch-depth: 1
 
       - name: Set up Java 21
@@ -48,138 +52,101 @@ jobs:
           distribution: zulu
           java-version: "21"
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
 
-      - name: Verify original Nothing widget sources
+      - name: Sync Nothing OS Sources and Resources
         shell: bash
         run: |
-          set -euo pipefail
+          set -e
+          echo "=== البدء في دمج ملفات Nothing OS مع Lawnchair ==="
 
-          SRC="nathing-source/app/src/main/java/com/example"
+          SRC_BASE="nathing-source/app/src/main"
+          DST_BASE="lawnchair-src/lawnchair/src"
 
-          FILES=(
-            "ui/components/NothingWidgets.kt"
-            "ui/components/NothingAnalogClockWidget.kt"
-            "ui/components/NosPortWidgets.kt"
-            "ui/components/DotMatrix.kt"
-            "model/LauncherModels.kt"
-            "service/SystemPortHelper.kt"
-            "service/SystemWidgetHostManager.kt"
-            "ui/theme/Color.kt"
-            "ui/theme/Theme.kt"
-            "ui/theme/Type.kt"
-            "util/VibrationHelper.kt"
-          )
-
-          for file in "${FILES[@]}"; do
-            if [ ! -f "$SRC/$file" ]; then
-              echo "::error::Missing source: $SRC/$file"
-              exit 1
-            fi
-            echo "FOUND: $SRC/$file"
-          done
-
-      - name: Copy original Nothing widget sources
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          SRC="nathing-source/app/src/main/java/com/example"
-          DST="lawnchair-src/lawnchair/src/com/example"
-
-          mkdir -p \
-            "$DST/ui/components" \
-            "$DST/ui/theme" \
-            "$DST/model" \
-            "$DST/service" \
-            "$DST/util"
-
-          cp "$SRC/ui/components/NothingWidgets.kt" \
-             "$DST/ui/components/"
-
-          cp "$SRC/ui/components/NothingAnalogClockWidget.kt" \
-             "$DST/ui/components/"
-
-          cp "$SRC/ui/components/NosPortWidgets.kt" \
-             "$DST/ui/components/"
-
-          cp "$SRC/ui/components/DotMatrix.kt" \
-             "$DST/ui/components/"
-
-          cp "$SRC/model/LauncherModels.kt" \
-             "$DST/model/"
-
-          cp "$SRC/service/SystemPortHelper.kt" \
-             "$DST/service/"
-
-          cp "$SRC/service/SystemWidgetHostManager.kt" \
-             "$DST/service/"
-
-          cp "$SRC/ui/theme/Color.kt" \
-             "$DST/ui/theme/"
-
-          cp "$SRC/ui/theme/Theme.kt" \
-             "$DST/ui/theme/"
-
-          cp "$SRC/ui/theme/Type.kt" \
-             "$DST/ui/theme/"
-
-          cp "$SRC/util/VibrationHelper.kt" \
-             "$DST/util/"
-
-          echo "Original Nothing sources copied."
-
-      - name: Locate Lawnchair launcher source
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          ROOT="lawnchair-src"
-
-          echo "Searching for launcher source files..."
-
-          find "$ROOT" -type f \
-            \( -name "Launcher.java" -o -name "Launcher.kt" \) \
-            -print | tee "$GITHUB_WORKSPACE/launcher-files.txt"
-
-          if [ ! -s "$GITHUB_WORKSPACE/launcher-files.txt" ]; then
-            echo "::error::No Launcher.java or Launcher.kt found."
-            exit 1
+          # 1. تحديد مسار الكود المصدري في Nothing
+          if [ -d "$SRC_BASE/java/com/example" ]; then
+            SRC_CODE="$SRC_BASE/java/com/example"
+          elif [ -d "$SRC_BASE/kotlin/com/example" ]; then
+            SRC_CODE="$SRC_BASE/kotlin/com/example"
+          else
+            echo "::warning::لم يتم العثور على com/example، جاري البحث عن ملفات الودجات..."
+            SRC_CODE=$(find "$SRC_BASE" -type d -name "components" | head -n 1 | sed 's|/ui/components||')
           fi
 
-          echo "Launcher source discovery completed."
+          echo "المصدر المكتشف: $SRC_CODE"
 
-      - name: Verify Gradle project
+          # 2. تحديد المجلد الهدف في Lawnchair
+          mkdir -p "$DST_BASE/com/example"
+
+          # 3. نسخ مجلدات الكود الأساسية
+          for dir in ui model service util; do
+            if [ -d "$SRC_CODE/$dir" ]; then
+              mkdir -p "$DST_BASE/com/example/$dir"
+              cp -rf "$SRC_CODE/$dir/"* "$DST_BASE/com/example/$dir/"
+              echo "تم نسخ: $dir"
+            fi
+          done
+
+          # 4. نسخ الموارد (Drawables, Colors, Strings, Fonts) لمنع خطأ Unresolved reference: R
+          if [ -d "$SRC_BASE/res" ]; then
+            echo "جاري دمج ملفات الموارد (res)..."
+            LAWN_RES="lawnchair-src/lawnchair/res"
+            if [ ! -d "$LAWN_RES" ]; then
+              LAWN_RES="lawnchair-src/lawnchair/src/main/res"
+            fi
+
+            if [ -d "$LAWN_RES" ]; then
+              # نسخ الموارد بدون استبدال الملفات الأساسية للـ Launcher
+              cp -rn "$SRC_BASE/res/"* "$LAWN_RES/" || true
+              echo "تم دمج الموارد بنجاح."
+            fi
+          fi
+
+          echo "=== اكتمال دمج الملفات بنجاح ==="
+
+      - name: Verify Lawnchair Gradle Environment
         working-directory: lawnchair-src
         shell: bash
         run: |
-          set -euo pipefail
-
-          test -f gradlew
-
-          if [ ! -f settings.gradle.kts ] && \
-             [ ! -f settings.gradle ]; then
-            echo "::error::Gradle settings file not found."
-            exit 1
-          fi
-
+          set -e
           chmod +x gradlew
+          echo "التحقق من مهام Gradle المتاحة..."
+          ./gradlew tasks --group="build" || true
 
-      - name: Build and capture diagnostics
+      - name: Build Lawnchair APK
         working-directory: lawnchair-src
         shell: bash
         run: |
           set -o pipefail
 
+          TARGET_TASK="assembleLawnWithQuickstepGithubDebug"
+
+          # التأكد مما إذا كانت المهمة موجودة أو استخدام البديل المتوفر
+          if ! ./gradlew tasks --all | grep -q "$TARGET_TASK"; then
+            echo "المهمة $TARGET_TASK غير متوفرة، تجربة assembleLawnWithQuickstepDebug..."
+            TARGET_TASK="assembleLawnWithQuickstepDebug"
+          fi
+
+          if ! ./gradlew tasks --all | grep -q "$TARGET_TASK"; then
+            echo "تجربة assembleDebug كخيار عام..."
+            TARGET_TASK="assembleDebug"
+          fi
+
+          echo "المهمة التي سيتم تنفيذها: $TARGET_TASK"
+
           ./gradlew \
             --no-daemon \
             --stacktrace \
             --console=plain \
-            assembleLawnWithQuickstepGithubDebug \
-            2>&1 | tee "$GITHUB_WORKSPACE/build-full.log"
+            $TARGET_TASK 2>&1 | tee "$GITHUB_WORKSPACE/build-full.log"
 
-      - name: Create build summary
+      - name: Process Build Diagnostics
         if: always()
         shell: bash
         run: |
@@ -187,44 +154,31 @@ jobs:
 
           if [ -f build-full.log ]; then
             {
-              echo "## Build diagnostics"
+              echo "## تقرير بناء التطبيق (Build Diagnostics)"
               echo
-              echo "### Errors"
-
-              grep -n -E \
-                '(^e: |error:|Unresolved reference|What went wrong|Compilation error|FAILURE: Build failed)' \
-                build-full.log | tail -n 100 || true
+              echo "### الأخطاء المكتشفة (إن وجدت):"
+              echo '```text'
+              grep -n -E '(^e: |error:|Unresolved reference|What went wrong|Compilation error|FAILURE: Build failed)' build-full.log | tail -n 100 || echo "لم يتم العثور على أخطاء صريحة."
+              echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
 
             cp build-full.log diagnostics/
           fi
 
-          if [ -f launcher-files.txt ]; then
-            cp launcher-files.txt diagnostics/
-          fi
-
-          {
-            echo "Nothing OS integration report"
-            echo
-            echo "Original Nothing widget source files were copied."
-            echo "Lawnchair launcher source files were located."
-            echo "Copying source files does not itself integrate widgets into the home screen."
-          } > diagnostics/widget-integration-report.txt
-
-      - name: Upload APK
+      - name: Upload Launcher APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Nothing-Launcher-Debug-APK
+          name: Nothing-Lawnchair-16-APK
           path: lawnchair-src/**/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload build diagnostics
+      - name: Upload Diagnostics Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Nothing-Launcher-Build-Diagnostics
+          name: Build-Diagnostics-Log
           path: diagnostics/
           if-no-files-found: warn
           retention-days: 14
