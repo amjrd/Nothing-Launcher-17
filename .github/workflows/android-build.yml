@@ -62,31 +62,27 @@ jobs:
       - name: Configure Gradle Environment
         shell: bash
         run: |
-          # منع تحويل التحذيرات إلى أخطاء
           echo "kotlin.allwarningsaserrors=false" >> lawnchair-src/gradle.properties
           echo "org.gradle.warning.mode=none" >> lawnchair-src/gradle.properties
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Sync Nothing OS Code (Safe Sync)
+      - name: Sync Nothing OS Code
         shell: bash
         run: |
           set -e
-          echo "=== مزامنة كود Nothing OS بأمان دون المساس بملفات قيم اللانشر ==="
           SRC_BASE="nathing-source/app/src/main"
           DST_BASE="lawnchair-src/lawnchair/src"
 
           mkdir -p "$DST_BASE/com/example"
 
-          # 1. نسخ كود Kotlin البرمجي فقط
           if [ -d "$SRC_BASE/java/com/example" ]; then
             cp -rf "$SRC_BASE/java/com/example/"* "$DST_BASE/com/example/"
           elif [ -d "$SRC_BASE/kotlin/com/example" ]; then
             cp -rf "$SRC_BASE/kotlin/com/example/"* "$DST_BASE/com/example/"
           fi
 
-          # 2. نسخ مجلدات الأيقونات والرسومات فقط (دون مجلد values لمنع تدمير نصوص وثيمات اللانشر)
           LAWN_RES="lawnchair-src/lawnchair/res"
           [ ! -d "$LAWN_RES" ] && LAWN_RES="lawnchair-src/lawnchair/src/main/res"
 
@@ -99,55 +95,242 @@ jobs:
             done
           fi
 
-      - name: Inject Nothing AppWidgets into Lawnchair
+      - name: Inject Real Nothing OS Dot-Matrix Widgets
         shell: bash
         run: |
           set -e
-          echo "=== توليد ملفات AppWidget لـ Nothing OS في Lawnchair ==="
+          echo "=== بناء محرك النقاط الحقيقي وودجات Nothing OS ==="
 
           DST_CODE="lawnchair-src/lawnchair/src/com/example/ui/components"
           mkdir -p "$DST_CODE"
 
-          # 1. إنشاء ملف NothingWidgetProviders.kt
+          # 1. كود محرك رسم النقاط الحقيقي وحزمة الودجات
           cat << 'EOF' > "$DST_CODE/NothingWidgetProviders.kt"
           package com.example.ui.components
 
+          import android.app.PendingIntent
           import android.appwidget.AppWidgetManager
           import android.appwidget.AppWidgetProvider
+          import android.content.BroadcastReceiver
           import android.content.Context
+          import android.content.Intent
+          import android.content.IntentFilter
           import android.graphics.*
+          import android.os.BatteryManager
           import android.widget.RemoteViews
           import java.text.SimpleDateFormat
           import java.util.*
           import kotlin.math.cos
           import kotlin.math.sin
 
+          /**
+           * محرك رسم مصفوفة النقاط Dot-Matrix الأصلي لـ Nothing OS
+           */
+          object NothingDotMatrixRenderer {
+              // مصفوفات 5x7 لرسم الأرقام بنقاط حقيقية
+              private val DIGIT_PATTERNS = mapOf(
+                  '0' to arrayOf(
+                      " 111 ",
+                      "1   1",
+                      "1  11",
+                      "1 1 1",
+                      "11  1",
+                      "1   1",
+                      " 111 "
+                  ),
+                  '1' to arrayOf(
+                      "  1  ",
+                      " 11  ",
+                      "  1  ",
+                      "  1  ",
+                      "  1  ",
+                      "  1  ",
+                      " 111 "
+                  ),
+                  '2' to arrayOf(
+                      " 111 ",
+                      "1   1",
+                      "    1",
+                      "  11 ",
+                      " 1   ",
+                      "1    ",
+                      "11111"
+                  ),
+                  '3' to arrayOf(
+                      " 111 ",
+                      "1   1",
+                      "    1",
+                      "  11 ",
+                      "    1",
+                      "1   1",
+                      " 111 "
+                  ),
+                  '4' to arrayOf(
+                      "   1 ",
+                      "  11 ",
+                      " 1 1 ",
+                      "1  1 ",
+                      "11111",
+                      "   1 ",
+                      "   1 "
+                  ),
+                  '5' to arrayOf(
+                      "11111",
+                      "1    ",
+                      "1111 ",
+                      "    1",
+                      "    1",
+                      "1   1",
+                      " 111 "
+                  ),
+                  '6' to arrayOf(
+                      "  11 ",
+                      " 1   ",
+                      "1    ",
+                      "1111 ",
+                      "1   1",
+                      "1   1",
+                      " 111 "
+                  ),
+                  '7' to arrayOf(
+                      "11111",
+                      "    1",
+                      "   1 ",
+                      "  1  ",
+                      " 1   ",
+                      " 1   ",
+                      " 1   "
+                  ),
+                  '8' to arrayOf(
+                      " 111 ",
+                      "1   1",
+                      "1   1",
+                      " 111 ",
+                      "1   1",
+                      "1   1",
+                      " 111 "
+                  ),
+                  '9' to arrayOf(
+                      " 111 ",
+                      "1   1",
+                      "1   1",
+                      " 1111",
+                      "    1",
+                      "   1 ",
+                      " 11  "
+                  ),
+                  ':' to arrayOf(
+                      " ",
+                      "1",
+                      " ",
+                      " ",
+                      "1",
+                      " ",
+                      " "
+                  )
+              )
+
+              fun drawDotString(
+                  canvas: Canvas,
+                  text: String,
+                  startX: Float,
+                  startY: Float,
+                  dotRadius: Float,
+                  dotSpacing: Float,
+                  activeColor: Int = Color.WHITE,
+                  showInactiveDots: Boolean = true
+              ): Float {
+                  val activePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                      color = activeColor
+                      style = Paint.Style.FILL
+                  }
+                  val inactivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                      color = Color.parseColor("#1AFFFFFF") // نقاط خافتة بنمط Nothing
+                      style = Paint.Style.FILL
+                  }
+
+                  var currentX = startX
+                  for (char in text) {
+                      val pattern = DIGIT_PATTERNS[char] ?: continue
+                      val cols = pattern[0].length
+                      val rows = pattern.size
+
+                      for (row in 0 until rows) {
+                          val line = pattern[row]
+                          for (col in 0 until cols) {
+                              val isFilled = col < line.length && line[col] == '1'
+                              val cx = currentX + col * (dotRadius * 2 + dotSpacing)
+                              val cy = startY + row * (dotRadius * 2 + dotSpacing)
+
+                              if (isFilled) {
+                                  canvas.drawCircle(cx, cy, dotRadius, activePaint)
+                              } else if (showInactiveDots) {
+                                  canvas.drawCircle(cx, cy, dotRadius * 0.7f, inactivePaint)
+                              }
+                          }
+                      }
+                      currentX += cols * (dotRadius * 2 + dotSpacing) + (dotSpacing * 2.5f)
+                  }
+                  return currentX
+              }
+          }
+
+          /**
+           * 1. ودجت الساعة الرقمية النقطية الأصلية (Nothing Dot Clock 4x2)
+           */
           class NothingDigitalClockWidgetProvider : AppWidgetProvider() {
               override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-                  for (id in appWidgetIds) updateClock(context, appWidgetManager, id)
+                  for (id in appWidgetIds) updateWidget(context, appWidgetManager, id)
               }
+
               companion object {
-                  fun updateClock(context: Context, appWidgetManager: AppWidgetManager, id: Int) {
+                  fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, id: Int) {
                       val pkg = context.packageName
                       val layoutId = context.resources.getIdentifier("widget_nothing_container", "layout", pkg)
                       val imgId = context.resources.getIdentifier("widget_image_view", "id", pkg)
                       if (layoutId == 0 || imgId == 0) return
-                      val views = RemoteViews(pkg, layoutId)
-                      
-                      val bmp = Bitmap.createBitmap(600, 300, Bitmap.Config.ARGB_8888)
-                      val canvas = Canvas(bmp)
-                      val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#E6121212") }
-                      canvas.drawRoundRect(RectF(10f, 10f, 590f, 290f), 48f, 48f, bg)
-                      val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#33FFFFFF"); style = Paint.Style.STROKE; strokeWidth = 3f }
-                      canvas.drawRoundRect(RectF(10f, 10f, 590f, 290f), 48f, 48f, stroke)
-                      
-                      val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-                      val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 96f; typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD); textAlign = Paint.Align.CENTER }
-                      canvas.drawText(time, 300f, 160f, textPaint)
 
-                      val date = SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(Date()).uppercase()
-                      val datePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D71921"); textSize = 28f; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-                      canvas.drawText(date, 300f, 225f, datePaint)
+                      val views = RemoteViews(pkg, layoutId)
+                      val width = 720
+                      val height = 360
+                      val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                      val canvas = Canvas(bmp)
+
+                      // خلفية داكنة مع إطار شبكة النقاط
+                      val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F50A0A0A") }
+                      canvas.drawRoundRect(RectF(12f, 12f, width - 12f, height - 12f), 54f, 54f, bgPaint)
+
+                      val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                          color = Color.parseColor("#26FFFFFF")
+                          style = Paint.Style.STROKE
+                          strokeWidth = 3f
+                      }
+                      canvas.drawRoundRect(RectF(12f, 12f, width - 12f, height - 12f), 54f, 54f, borderPaint)
+
+                      // رسم الوقت الحقيقي بالنقاط Dot Matrix
+                      val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+                      // تمركز النقاط في وسط الكانفاس
+                      NothingDotMatrixRenderer.drawDotString(
+                          canvas, timeStr,
+                          startX = 100f, startY = 60f,
+                          dotRadius = 6f, dotSpacing = 7f,
+                          activeColor = Color.WHITE,
+                          showInactiveDots = true
+                      )
+
+                      // شريط التاريخ الأحمر بنمط Nothing
+                      val dateStr = SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(Date()).uppercase()
+                      val datePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                          color = Color.parseColor("#D71921")
+                          textSize = 30f
+                          typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+                          letterSpacing = 0.2f
+                      }
+                      canvas.drawText(dateStr, 110f, 270f, datePaint)
+
+                      // مؤشر نقطي أبيض إضافي
+                      val redDot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D71921") }
+                      canvas.drawCircle(85f, 260f, 6f, redDot)
 
                       views.setImageViewBitmap(imgId, bmp)
                       appWidgetManager.updateAppWidget(id, views)
@@ -155,6 +338,87 @@ jobs:
               }
           }
 
+          /**
+           * 2. ودجت البطارية والحالة بنمط حلقات Nothing (Nothing Battery Ring 2x2)
+           */
+          class NothingBatteryWidgetProvider : AppWidgetProvider() {
+              override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+                  for (id in appWidgetIds) updateWidget(context, appWidgetManager, id)
+              }
+
+              companion object {
+                  fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, id: Int) {
+                      val pkg = context.packageName
+                      val layoutId = context.resources.getIdentifier("widget_nothing_container", "layout", pkg)
+                      val imgId = context.resources.getIdentifier("widget_image_view", "id", pkg)
+                      if (layoutId == 0 || imgId == 0) return
+
+                      val views = RemoteViews(pkg, layoutId)
+                      val size = 400
+                      val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+                      val canvas = Canvas(bmp)
+
+                      val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F50A0A0A") }
+                      canvas.drawRoundRect(RectF(10f, 10f, size - 10f, size - 10f), 54f, 54f, bgPaint)
+
+                      // جلب نسبة شحن البطارية الفعلية من النظام
+                      val batteryStatus: Intent? = IntentFilter(Intent.ACTION_BATTERY_CHANGED).let { filter ->
+                          context.applicationContext.registerReceiver(null, filter)
+                      }
+                      val level: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: 85
+                      val scale: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: 100
+                      val batteryPct = ((level / scale.toFloat()) * 100).toInt()
+
+                      val center = size / 2f
+                      val ringRadius = 130f
+
+                      // رسم حلقة النقاط الخارجية
+                      val totalDots = 24
+                      val filledDots = (totalDots * (batteryPct / 100f)).toInt()
+
+                      for (i in 0 until totalDots) {
+                          val angle = Math.toRadians((i * (360.0 / totalDots) - 90).toDouble())
+                          val dx = center + ringRadius * cos(angle).toFloat()
+                          val dy = center + ringRadius * sin(angle).toFloat()
+
+                          val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                              if (i < filledDots) {
+                                  color = if (batteryPct <= 20) Color.parseColor("#D71921") else Color.WHITE
+                              } else {
+                                  color = Color.parseColor("#26FFFFFF")
+                              }
+                          }
+                          canvas.drawCircle(dx, dy, 7f, dotPaint)
+                      }
+
+                      // رسم النسبة بالنقاط
+                      val pctText = "$batteryPct"
+                      val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                          color = Color.WHITE
+                          textSize = 58f
+                          typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+                          textAlign = Paint.Align.CENTER
+                      }
+                      canvas.drawText("$pctText%", center, center + 18f, textPaint)
+
+                      val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                          color = Color.parseColor("#D71921")
+                          textSize = 20f
+                          typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                          textAlign = Paint.Align.CENTER
+                          letterSpacing = 0.2f
+                      }
+                      canvas.drawText("BATTERY", center, center + 65f, labelPaint)
+
+                      views.setImageViewBitmap(imgId, bmp)
+                      appWidgetManager.updateAppWidget(id, views)
+                  }
+              }
+          }
+
+          /**
+           * 3. ودجت الساعة التناظرية الفخمة من Nothing OS (Analog Dial 2x2)
+           */
           class NothingAnalogClockWidgetProvider : AppWidgetProvider() {
               override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
                   for (id in appWidgetIds) updateAnalog(context, appWidgetManager, id)
@@ -167,12 +431,39 @@ jobs:
                       if (layoutId == 0 || imgId == 0) return
                       val views = RemoteViews(pkg, layoutId)
 
-                      val bmp = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
+                      val size = 420
+                      val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
                       val canvas = Canvas(bmp)
-                      val dial = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F2000000") }
-                      canvas.drawCircle(200f, 200f, 180f, dial)
-                      val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#40FFFFFF"); style = Paint.Style.STROKE; strokeWidth = 3f }
-                      canvas.drawCircle(200f, 200f, 180f, border)
+                      val center = size / 2f
+                      val radius = size / 2f - 24f
+
+                      // قرص الساعة
+                      val dial = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F50A0A0A") }
+                      canvas.drawCircle(center, center, radius, dial)
+
+                      val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                          color = Color.parseColor("#33FFFFFF")
+                          style = Paint.Style.STROKE
+                          strokeWidth = 3f
+                      }
+                      canvas.drawCircle(center, center, radius, border)
+
+                      // حلقة نقاط الدقائق الـ 60 بنمط Nothing الفاخر
+                      for (i in 0 until 60) {
+                          val angle = Math.toRadians((i * 6).toDouble())
+                          val dx = center + (radius - 22f) * sin(angle).toFloat()
+                          val dy = center - (radius - 22f) * cos(angle).toFloat()
+
+                          val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                              when {
+                                  i == 0 -> { color = Color.parseColor("#D71921") } // رأس الساعة أحمر
+                                  i % 5 == 0 -> { color = Color.WHITE }
+                                  else -> { color = Color.parseColor("#33FFFFFF") }
+                              }
+                          }
+                          val r = if (i % 5 == 0) 5f else 2.5f
+                          canvas.drawCircle(dx, dy, r, p)
+                      }
 
                       val cal = Calendar.getInstance()
                       val h = cal.get(Calendar.HOUR)
@@ -180,12 +471,17 @@ jobs:
                       val hAngle = Math.toRadians(((h + m / 60f) * 30).toDouble())
                       val mAngle = Math.toRadians((m * 6).toDouble())
 
+                      // عقرب الساعات (أبيض عريض)
                       val hp = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; strokeWidth = 10f; strokeCap = Paint.Cap.ROUND }
-                      canvas.drawLine(200f, 200f, 200f + 90f * sin(hAngle).toFloat(), 200f - 90f * cos(hAngle).toFloat(), hp)
+                      canvas.drawLine(center, center, center + 95f * sin(hAngle).toFloat(), center - 95f * cos(hAngle).toFloat(), hp)
 
+                      // عقرب الدقائق (أحمر أنيق)
                       val mp = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D71921"); strokeWidth = 6f; strokeCap = Paint.Cap.ROUND }
-                      canvas.drawLine(200f, 200f, 200f + 135f * sin(mAngle).toFloat(), 200f - 135f * cos(mAngle).toFloat(), mp)
-                      canvas.drawCircle(200f, 200f, 8f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
+                      canvas.drawLine(center, center, center + 140f * sin(mAngle).toFloat(), center - 140f * cos(mAngle).toFloat(), mp)
+
+                      // المركز
+                      canvas.drawCircle(center, center, 10f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
+                      canvas.drawCircle(center, center, 4f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D71921") })
 
                       views.setImageViewBitmap(imgId, bmp)
                       appWidgetManager.updateAppWidget(id, views)
@@ -194,7 +490,7 @@ jobs:
           }
           EOF
 
-          # 2. إنشاء ملفات الـ XML
+          # 2. إنشاء تعريفات الودجات الثلاث في XML
           LAWN_RES="lawnchair-src/lawnchair/res"
           [ ! -d "$LAWN_RES" ] && LAWN_RES="lawnchair-src/lawnchair/src/main/res"
 
@@ -205,7 +501,7 @@ jobs:
           <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
               android:layout_width="match_parent"
               android:layout_height="match_parent"
-              android:padding="4dp">
+              android:padding="2dp">
               <ImageView
                   android:id="@+id/widget_image_view"
                   android:layout_width="match_parent"
@@ -217,9 +513,22 @@ jobs:
           cat << 'EOF' > "$LAWN_RES/xml/nothing_digital_clock_info.xml"
           <?xml version="1.0" encoding="utf-8"?>
           <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-              android:minWidth="180dp"
-              android:minHeight="90dp"
+              android:minWidth="240dp"
+              android:minHeight="110dp"
               android:targetCellWidth="4"
+              android:targetCellHeight="2"
+              android:updatePeriodMillis="60000"
+              android:initialLayout="@layout/widget_nothing_container"
+              android:resizeMode="horizontal|vertical"
+              android:widgetCategory="home_screen" />
+          EOF
+
+          cat << 'EOF' > "$LAWN_RES/xml/nothing_battery_info.xml"
+          <?xml version="1.0" encoding="utf-8"?>
+          <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+              android:minWidth="140dp"
+              android:minHeight="140dp"
+              android:targetCellWidth="2"
               android:targetCellHeight="2"
               android:updatePeriodMillis="60000"
               android:initialLayout="@layout/widget_nothing_container"
@@ -240,7 +549,7 @@ jobs:
               android:widgetCategory="home_screen" />
           EOF
 
-          # 3. إدراج المكونات داخل AndroidManifest.xml
+          # 3. تسجيل الودجات الثلاث في AndroidManifest.xml
           MANIFEST=$(find lawnchair-src/lawnchair -name "AndroidManifest.xml" | head -n 1)
           if [ -f "$MANIFEST" ]; then
             python3 -c '
@@ -251,9 +560,9 @@ jobs:
               content = f.read()
 
           receivers = """
-              <!-- Nothing OS Widgets -->
+              <!-- Nothing OS Real Widgets Suite -->
               <receiver android:name="com.example.ui.components.NothingDigitalClockWidgetProvider"
-                  android:label="Nothing Dot Clock"
+                  android:label="Nothing Dot Matrix Clock (4x2)"
                   android:exported="true">
                   <intent-filter>
                       <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -262,8 +571,20 @@ jobs:
                       android:name="android.appwidget.provider"
                       android:resource="@xml/nothing_digital_clock_info" />
               </receiver>
+
+              <receiver android:name="com.example.ui.components.NothingBatteryWidgetProvider"
+                  android:label="Nothing Battery Ring (2x2)"
+                  android:exported="true">
+                  <intent-filter>
+                      <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                  </intent-filter>
+                  <meta-data
+                      android:name="android.appwidget.provider"
+                      android:resource="@xml/nothing_battery_info" />
+              </receiver>
+
               <receiver android:name="com.example.ui.components.NothingAnalogClockWidgetProvider"
-                  android:label="Nothing Analog Clock"
+                  android:label="Nothing Analog Dial (2x2)"
                   android:exported="true">
                   <intent-filter>
                       <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -278,11 +599,9 @@ jobs:
               content = content.replace("</application>", receivers + "\n</application>")
               with open(path, "w", encoding="utf-8") as f:
                   f.write(content)
-              print("تم حقن الودجات في Manifest بنجاح تام.")
+              print("تم تسجيل حزمة ودجات Nothing OS بنجاح تام.")
           ' "$MANIFEST"
           fi
-
-          echo "=== اكتمال مرحلة التجهيز بنجاح ==="
 
       - name: Build Launcher APK
         working-directory: lawnchair-src
