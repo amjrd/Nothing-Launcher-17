@@ -1,97 +1,67 @@
-name: Nothing Launcher 17 - Build
+name: Nothing OS Launcher - Lawnchair Build
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: android-build-${{ github.ref }}
+  group: lawnchair-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: Build Android APK
+    name: Build Lawnchair for Nothing OS
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout project
         uses: actions/checkout@v4
 
-      - name: Inspect project structure
-        shell: bash
+      - name: Download official Lawnchair source
         run: |
-          echo "Repository root:"
-          pwd
+          git clone \
+            --branch 16-dev \
+            --recurse-submodules \
+            https://github.com/LawnchairLauncher/lawnchair.git \
+            lawnchair-src
 
-          echo "Root files:"
-          ls -la
-
-          echo "Gradle files:"
-          find . -maxdepth 5 \
-            \( -name gradlew \
-            -o -name gradlew.bat \
-            -o -name gradle-wrapper.properties \
-            -o -name settings.gradle \
-            -o -name settings.gradle.kts \
-            -o -name build.gradle \
-            -o -name build.gradle.kts \) \
-            -not -path '*/.git/*' \
-            -print
-
-      - name: Locate Gradle Wrapper
-        id: wrapper
-        shell: bash
+      - name: Verify Gradle Wrapper
+        working-directory: lawnchair-src
         run: |
-          WRAPPER="$(find . \
-            -type f \
-            -name gradlew \
-            -not -path './.git/*' \
-            -print -quit)"
-
-          if [ -z "$WRAPPER" ]; then
-            echo "::error::Gradle Wrapper gradlew was not found."
-            echo "The project needs a valid Gradle Wrapper or another verified build setup."
+          if [ ! -f gradlew ]; then
+            echo "::error::Gradle Wrapper is missing from Lawnchair source."
             exit 1
           fi
 
-          WRAPPER_DIR="$(dirname "$WRAPPER")"
+          chmod +x gradlew
+          echo "Gradle Wrapper found."
 
-          echo "wrapper=$WRAPPER" >> "$GITHUB_OUTPUT"
-          echo "wrapper_dir=$WRAPPER_DIR" >> "$GITHUB_OUTPUT"
-
-          chmod +x "$WRAPPER"
-
-          echo "Gradle Wrapper found: $WRAPPER"
-
-      - name: Set up Java
+      - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: '17'
+          distribution: zulu
+          java-version: '21'
 
-      - name: Build Debug APK
-        working-directory: ${{ steps.wrapper.outputs.wrapper_dir }}
-        shell: bash
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Lawnchair APK
+        working-directory: lawnchair-src
         run: |
-          "${GITHUB_WORKSPACE}/${{ steps.wrapper.outputs.wrapper }}" \
+          ./gradlew \
             --no-daemon \
-            :app:assembleDebug \
+            assembleLawnWithQuickstepGithubDebug \
             --stacktrace
 
-      - name: Upload Debug APK
-        if: success()
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Nothing-Launcher-17-debug
-          path: |
-            **/build/outputs/apk/debug/*.apk
+          name: Nothing-OS-Lawnchair-Debug
+          path: lawnchair-src/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 14
