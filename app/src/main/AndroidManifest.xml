@@ -1,25 +1,36 @@
-<!-- Nothing OS Digital Dot Clock Widget -->
-        <receiver
-            android:name="com.example.ui.components.NothingDigitalClockWidgetProvider"
-            android:label="Nothing Digital Clock"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/nothing_digital_clock_info" />
-        </receiver>
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-        <!-- Nothing OS Analog Clock Widget -->
-        <receiver
-            android:name="com.example.ui.components.NothingAnalogClockWidgetProvider"
-            android:label="Nothing Analog Clock"
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:label="Nothing Launcher"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <activity
+            android:name="com.nothing.launcher.MainActivity"
             android:exported="true">
+
             <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/nothing_analog_clock_info" />
-        </receiver>
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+        </activity>
+
+    </application>
+
+</manifest>
