@@ -1,391 +1,124 @@
-name: Update Nothing Launcher & Build APK
+name: Nothing Launcher 17 - Widget Fix Build
 
 on:
-  push:
-    branches: [ "main", "master" ]
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'app/**'
+      - '.github/workflows/android-build.yml'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'gradlew'
+      - 'gradle/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nothing-launcher-widget-build
+  cancel-in-progress: true
 
 jobs:
   build:
-    name: Generate All Files & Compile APK
+    name: Build Nothing Launcher 17
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout Code
+      - name: Checkout source code
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      # استخدام Gradle 8.13 لحل مشكلة عدم التوافق
-      - name: Setup Gradle 8.13
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
 
-      # 1. إنشاء خلفيات الـ Widgets بتصميم Nothing
-      - name: Create Widget Drawables
+      - name: Check project files
+        shell: bash
         run: |
-          mkdir -p app/src/main/res/drawable
+          set -e
 
-          cat << 'EOF' > app/src/main/res/drawable/bg_nothing_widget.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-              <solid android:color="#161616" />
-              <stroke android:width="1dp" android:color="#333333" />
-              <corners android:radius="24dp" />
-          </shape>
-          EOF
+          echo "Checking Android project..."
 
-          cat << 'EOF' > app/src/main/res/drawable/bg_nothing_widget_circle.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-              <solid android:color="#161616" />
-              <stroke android:width="1.5dp" android:color="#333333" />
-          </shape>
-          EOF
+          test -f settings.gradle.kts
+          test -f build.gradle.kts
+          test -f app/build.gradle.kts
+          test -f app/src/main/AndroidManifest.xml
 
-      # 2. إنشاء واجهات الـ Widgets الحية
-      - name: Create Widget Layouts
+          echo "Required project files found."
+
+      - name: Validate Android resources
+        shell: bash
         run: |
-          mkdir -p app/src/main/res/layout
+          set -e
 
-          cat << 'EOF' > app/src/main/res/layout/widget_nothing_container.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-              android:id="@+id/widget_container"
-              android:layout_width="match_parent"
-              android:layout_height="match_parent"
-              android:background="@drawable/bg_nothing_widget"
-              android:padding="16dp">
-
-              <LinearLayout
-                  android:layout_width="match_parent"
-                  android:layout_height="match_parent"
-                  android:gravity="center"
-                  android:orientation="vertical">
-
-                  <TextView
-                      android:id="@+id/widget_title"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="NOTHING"
-                      android:textColor="#D71920"
-                      android:textSize="12sp"
-                      android:textStyle="bold"
-                      android:letterSpacing="0.2" />
-
-                  <TextClock
-                      android:id="@+id/widget_content"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:layout_marginTop="4dp"
-                      android:format12Hour="hh:mm"
-                      android:format24Hour="HH:mm"
-                      android:textColor="#FFFFFF"
-                      android:textSize="28sp"
-                      android:textStyle="bold" />
-              </LinearLayout>
-          </FrameLayout>
-          EOF
-
-          cat << 'EOF' > app/src/main/res/layout/widget_nothing_digital_clock.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-              android:id="@+id/widget_digital_root"
-              android:layout_width="match_parent"
-              android:layout_height="match_parent"
-              android:background="@drawable/bg_nothing_widget"
-              android:gravity="center"
-              android:orientation="vertical"
-              android:padding="16dp">
-
-              <LinearLayout
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:gravity="center_vertical"
-                  android:orientation="horizontal">
-
-                  <View
-                      android:layout_width="6dp"
-                      android:layout_height="6dp"
-                      android:layout_marginEnd="6dp"
-                      android:background="#D71920" />
-
-                  <TextView
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="NOTHING CLOCK"
-                      android:textColor="#AAAAAA"
-                      android:textSize="11sp"
-                      android:textStyle="bold" />
-              </LinearLayout>
-
-              <TextClock
-                  android:id="@+id/clock_time"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:format12Hour="hh:mm"
-                  android:format24Hour="HH:mm"
-                  android:textColor="#FFFFFF"
-                  android:textSize="36sp"
-                  android:textStyle="bold" />
-
-              <TextClock
-                  android:id="@+id/clock_date"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:format12Hour="EEE, MMM d"
-                  android:format24Hour="EEE, MMM d"
-                  android:textColor="#9E9E9E"
-                  android:textSize="12sp" />
-          </LinearLayout>
-          EOF
-
-          cat << 'EOF' > app/src/main/res/layout/widget_nothing_analog_clock.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-              android:id="@+id/widget_analog_root"
-              android:layout_width="match_parent"
-              android:layout_height="match_parent"
-              android:background="@drawable/bg_nothing_widget_circle"
-              android:padding="16dp">
-
-              <LinearLayout
-                  android:layout_width="match_parent"
-                  android:layout_height="match_parent"
-                  android:gravity="center"
-                  android:orientation="vertical">
-
-                  <TextClock
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:format12Hour="hh:mm"
-                      android:format24Hour="HH:mm"
-                      android:textColor="#FFFFFF"
-                      android:textSize="26sp"
-                      android:textStyle="bold" />
-
-                  <TextView
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:letterSpacing="0.2"
-                      android:text="NOTHING"
-                      android:textColor="#D71920"
-                      android:textSize="10sp"
-                      android:textStyle="bold" />
-
-                  <TextClock
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:format12Hour="EEE d"
-                      android:format24Hour="EEE d"
-                      android:textColor="#888888"
-                      android:textSize="11sp" />
-              </LinearLayout>
-          </FrameLayout>
-          EOF
-
-      # 3. إنشاء ملفات إعدادات AppWidget
-      - name: Create Widget XML Info
-        run: |
-          mkdir -p app/src/main/res/xml
-
-          cat << 'EOF' > app/src/main/res/xml/nothing_digital_clock_info.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-              android:minWidth="160dp"
-              android:minHeight="80dp"
-              android:targetCellWidth="3"
-              android:targetCellHeight="2"
-              android:updatePeriodMillis="1800000"
-              android:initialLayout="@layout/widget_nothing_digital_clock"
-              android:resizeMode="horizontal|vertical"
-              android:widgetCategory="home_screen" />
-          EOF
-
-          cat << 'EOF' > app/src/main/res/xml/nothing_analog_clock_info.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-              android:minWidth="140dp"
-              android:minHeight="140dp"
-              android:targetCellWidth="2"
-              android:targetCellHeight="2"
-              android:updatePeriodMillis="1800000"
-              android:initialLayout="@layout/widget_nothing_analog_clock"
-              android:resizeMode="horizontal|vertical"
-              android:widgetCategory="home_screen" />
-          EOF
-
-      # 4. إنشاء كود Widgets بلغة Kotlin
-      - name: Create NothingWidgetProviders.kt
-        run: |
-          mkdir -p app/src/main/java/com/nothing/launcher
-
-          cat << 'EOF' > app/src/main/java/com/nothing/launcher/NothingWidgetProviders.kt
-          package com.nothing.launcher
-
-          import android.app.PendingIntent
-          import android.appwidget.AppWidgetManager
-          import android.appwidget.AppWidgetProvider
-          import android.content.Context
-          import android.content.Intent
-          import android.widget.RemoteViews
-
-          class NothingDigitalClockWidgetProvider : AppWidgetProvider() {
-              override fun onUpdate(
-                  context: Context,
-                  appWidgetManager: AppWidgetManager,
-                  appWidgetIds: IntArray
-              ) {
-                  for (appWidgetId in appWidgetIds) {
-                      val intent = context.packageManager.getLaunchIntentForPackage(
-                          context.packageName
-                      ) ?: Intent()
-
-                      val pendingIntent = PendingIntent.getActivity(
-                          context,
-                          0,
-                          intent,
-                          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                      )
-
-                      val resId = context.resources.getIdentifier(
-                          "widget_nothing_digital_clock",
-                          "layout",
-                          context.packageName
-                      )
-
-                      val rootId = context.resources.getIdentifier(
-                          "widget_digital_root",
-                          "id",
-                          context.packageName
-                      )
-
-                      if (resId != 0) {
-                          val views = RemoteViews(context.packageName, resId).apply {
-                              if (rootId != 0) {
-                                  setOnClickPendingIntent(rootId, pendingIntent)
-                              }
-                          }
-                          appWidgetManager.updateAppWidget(appWidgetId, views)
-                      }
-                  }
-              }
-          }
-
-          class NothingAnalogClockWidgetProvider : AppWidgetProvider() {
-              override fun onUpdate(
-                  context: Context,
-                  appWidgetManager: AppWidgetManager,
-                  appWidgetIds: IntArray
-              ) {
-                  for (appWidgetId in appWidgetIds) {
-                      val intent = context.packageManager.getLaunchIntentForPackage(
-                          context.packageName
-                      ) ?: Intent()
-
-                      val pendingIntent = PendingIntent.getActivity(
-                          context,
-                          1,
-                          intent,
-                          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                      )
-
-                      val resId = context.resources.getIdentifier(
-                          "widget_nothing_analog_clock",
-                          "layout",
-                          context.packageName
-                      )
-
-                      val rootId = context.resources.getIdentifier(
-                          "widget_analog_root",
-                          "id",
-                          context.packageName
-                      )
-
-                      if (resId != 0) {
-                          val views = RemoteViews(context.packageName, resId).apply {
-                              if (rootId != 0) {
-                                  setOnClickPendingIntent(rootId, pendingIntent)
-                              }
-                          }
-                          appWidgetManager.updateAppWidget(appWidgetId, views)
-                      }
-                  }
-              }
-          }
-          EOF
-
-      # 5. تسجيل Widgets في AndroidManifest.xml
-      - name: Register Receivers in AndroidManifest.xml
-        run: |
-          python3 - << 'EOF'
+          python3 - <<'PY'
           import os
+          import xml.etree.ElementTree as ET
 
-          manifest_path = "app/src/main/AndroidManifest.xml"
+          roots = [
+              "app/src/main/AndroidManifest.xml",
+              "app/src/main/res",
+          ]
 
-          if os.path.exists(manifest_path):
-              with open(manifest_path, "r", encoding="utf-8") as f:
-                  content = f.read()
+          files = []
 
-              receiver_block = """
-                  <receiver
-                      android:name="com.nothing.launcher.NothingDigitalClockWidgetProvider"
-                      android:exported="true"
-                      android:label="Nothing Digital Clock">
-                      <intent-filter>
-                          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                      </intent-filter>
-                      <meta-data
-                          android:name="android.appwidget.provider"
-                          android:resource="@xml/nothing_digital_clock_info" />
-                  </receiver>
+          for root in roots:
+              if os.path.isfile(root) and root.endswith(".xml"):
+                  files.append(root)
+              elif os.path.isdir(root):
+                  for directory, _, filenames in os.walk(root):
+                      for filename in filenames:
+                          if filename.endswith(".xml"):
+                              files.append(os.path.join(directory, filename))
 
-                  <receiver
-                      android:name="com.nothing.launcher.NothingAnalogClockWidgetProvider"
-                      android:exported="true"
-                      android:label="Nothing Analog Clock">
-                      <intent-filter>
-                          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                      </intent-filter>
-                      <meta-data
-                          android:name="android.appwidget.provider"
-                          android:resource="@xml/nothing_analog_clock_info" />
-                  </receiver>
-          """
-
-              if (
-                  "NothingDigitalClockWidgetProvider" not in content
-                  and "</application>" in content
-              ):
-                  content = content.replace(
-                      "</application>",
-                      receiver_block + "\n    </application>"
+          for path in files:
+              try:
+                  ET.parse(path)
+              except Exception as error:
+                  raise SystemExit(
+                      f"Invalid XML: {path}\n{error}"
                   )
 
-                  with open(manifest_path, "w", encoding="utf-8") as f:
-                      f.write(content)
+          print(f"Validated {len(files)} XML files.")
+          PY
 
-                  print("Receivers registered successfully in AndroidManifest.xml")
-              else:
-                  print("Receivers already registered or application tag not found.")
-          EOF
-
-      # 6. بناء APK باستخدام Gradle 8.13
-      - name: Build APK with Gradle 8.13
+      - name: Build debug APK
+        shell: bash
         run: |
-          gradle wrapper --gradle-version 8.13
-          chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          set -e
 
-      # 7. رفع APK للتنزيل
-      - name: Upload APK Artifact
+          gradle --no-daemon --stacktrace assembleDebug
+
+      - name: Check APK output
+        shell: bash
+        run: |
+          set -e
+
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: Debug APK was not generated."
+            exit 1
+          fi
+
+          echo "APK successfully generated:"
+          ls -lh "$APK"
+
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Nothing-Launcher-APK
-          path: app/build/outputs/apk/debug/*.apk
+          name: Nothing-Launcher-17-Widget-Fixed
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
           retention-days: 14
