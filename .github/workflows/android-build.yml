@@ -20,11 +20,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # تثبيت إصدار Gradle 8.11.1 المستقر لحل مشكلة عدم التوافق
-      - name: Setup Gradle 8.11.1
+      # استخدام Gradle 8.13 لحل مشكلة عدم التوافق
+      - name: Setup Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.11.1'
+          gradle-version: '8.13'
 
       # 1. إنشاء خلفيات الـ Widgets بتصميم Nothing
       - name: Create Widget Drawables
@@ -48,7 +48,7 @@ jobs:
           </shape>
           EOF
 
-      # 2. إنشاء واجهات الـ Widgets الحية (الساعة الرقمية والتناظرية والحاوية)
+      # 2. إنشاء واجهات الـ Widgets الحية
       - name: Create Widget Layouts
         run: |
           mkdir -p app/src/main/res/layout
@@ -108,11 +108,13 @@ jobs:
                   android:layout_height="wrap_content"
                   android:gravity="center_vertical"
                   android:orientation="horizontal">
+
                   <View
                       android:layout_width="6dp"
                       android:layout_height="6dp"
                       android:layout_marginEnd="6dp"
                       android:background="#D71920" />
+
                   <TextView
                       android:layout_width="wrap_content"
                       android:layout_height="wrap_content"
@@ -187,7 +189,7 @@ jobs:
           </FrameLayout>
           EOF
 
-      # 3. إنشاء ملفات إعدادات AppWidget لنظام أندرويد
+      # 3. إنشاء ملفات إعدادات AppWidget
       - name: Create Widget XML Info
         run: |
           mkdir -p app/src/main/res/xml
@@ -218,7 +220,7 @@ jobs:
               android:widgetCategory="home_screen" />
           EOF
 
-      # 4. إنشاء كود برمجيات الـ Widgets (Kotlin)
+      # 4. إنشاء كود Widgets بلغة Kotlin
       - name: Create NothingWidgetProviders.kt
         run: |
           mkdir -p app/src/main/java/com/nothing/launcher
@@ -240,18 +242,34 @@ jobs:
                   appWidgetIds: IntArray
               ) {
                   for (appWidgetId in appWidgetIds) {
-                      val intent = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: Intent()
+                      val intent = context.packageManager.getLaunchIntentForPackage(
+                          context.packageName
+                      ) ?: Intent()
+
                       val pendingIntent = PendingIntent.getActivity(
                           context,
                           0,
                           intent,
                           PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                       )
-                      val resId = context.resources.getIdentifier("widget_nothing_digital_clock", "layout", context.packageName)
-                      val rootId = context.resources.getIdentifier("widget_digital_root", "id", context.packageName)
+
+                      val resId = context.resources.getIdentifier(
+                          "widget_nothing_digital_clock",
+                          "layout",
+                          context.packageName
+                      )
+
+                      val rootId = context.resources.getIdentifier(
+                          "widget_digital_root",
+                          "id",
+                          context.packageName
+                      )
+
                       if (resId != 0) {
                           val views = RemoteViews(context.packageName, resId).apply {
-                              if (rootId != 0) setOnClickPendingIntent(rootId, pendingIntent)
+                              if (rootId != 0) {
+                                  setOnClickPendingIntent(rootId, pendingIntent)
+                              }
                           }
                           appWidgetManager.updateAppWidget(appWidgetId, views)
                       }
@@ -266,18 +284,34 @@ jobs:
                   appWidgetIds: IntArray
               ) {
                   for (appWidgetId in appWidgetIds) {
-                      val intent = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: Intent()
+                      val intent = context.packageManager.getLaunchIntentForPackage(
+                          context.packageName
+                      ) ?: Intent()
+
                       val pendingIntent = PendingIntent.getActivity(
                           context,
                           1,
                           intent,
                           PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                       )
-                      val resId = context.resources.getIdentifier("widget_nothing_analog_clock", "layout", context.packageName)
-                      val rootId = context.resources.getIdentifier("widget_analog_root", "id", context.packageName)
+
+                      val resId = context.resources.getIdentifier(
+                          "widget_nothing_analog_clock",
+                          "layout",
+                          context.packageName
+                      )
+
+                      val rootId = context.resources.getIdentifier(
+                          "widget_analog_root",
+                          "id",
+                          context.packageName
+                      )
+
                       if (resId != 0) {
                           val views = RemoteViews(context.packageName, resId).apply {
-                              if (rootId != 0) setOnClickPendingIntent(rootId, pendingIntent)
+                              if (rootId != 0) {
+                                  setOnClickPendingIntent(rootId, pendingIntent)
+                              }
                           }
                           appWidgetManager.updateAppWidget(appWidgetId, views)
                       }
@@ -286,13 +320,14 @@ jobs:
           }
           EOF
 
-      # 5. تسجيل الـ Widgets في AndroidManifest.xml
+      # 5. تسجيل Widgets في AndroidManifest.xml
       - name: Register Receivers in AndroidManifest.xml
         run: |
           python3 - << 'EOF'
           import os
 
           manifest_path = "app/src/main/AndroidManifest.xml"
+
           if os.path.exists(manifest_path):
               with open(manifest_path, "r", encoding="utf-8") as f:
                   content = f.read()
@@ -321,23 +356,33 @@ jobs:
                           android:name="android.appwidget.provider"
                           android:resource="@xml/nothing_analog_clock_info" />
                   </receiver>
-              """
+          """
 
-              if "NothingDigitalClockWidgetProvider" not in content and "</application>" in content:
-                  content = content.replace("</application>", receiver_block + "\n    </application>")
+              if (
+                  "NothingDigitalClockWidgetProvider" not in content
+                  and "</application>" in content
+              ):
+                  content = content.replace(
+                      "</application>",
+                      receiver_block + "\n    </application>"
+                  )
+
                   with open(manifest_path, "w", encoding="utf-8") as f:
                       f.write(content)
+
                   print("Receivers registered successfully in AndroidManifest.xml")
+              else:
+                  print("Receivers already registered or application tag not found.")
           EOF
 
-      # 6. بناء ملف الـ APK باستخدام إصدار Gradle 8.11 المتوافق
-      - name: Build APK with Gradle 8.11
+      # 6. بناء APK باستخدام Gradle 8.13
+      - name: Build APK with Gradle 8.13
         run: |
-          gradle wrapper --gradle-version 8.11.1
+          gradle wrapper --gradle-version 8.13
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
 
-      # 7. رفع ملف الـ APK لتنزيله مباشرة على هاتفك
+      # 7. رفع APK للتنزيل
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
