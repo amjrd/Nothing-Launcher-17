@@ -5,6 +5,7 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
+import android.provider.AlarmClock
 import android.widget.RemoteViews
 
 /**
@@ -50,8 +51,7 @@ class NothingAnalogClockWidgetProvider : AppWidgetProvider() {
 }
 
 private fun clockPendingIntent(context: Context, requestCode: Int): PendingIntent {
-    val intent = Intent(Intent.ACTION_MAIN).apply {
-        addCategory(Intent.CATEGORY_APP_CLOCK)
+    val intent = Intent(AlarmClock.ACTION_SHOW_ALARMS).apply {
         flags = Intent.FLAG_ACTIVITY_NEW_TASK
     }
     return PendingIntent.getActivity(
