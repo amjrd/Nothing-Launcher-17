@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -195,12 +197,19 @@ private fun NothingLauncherApp(
 ) {
     var apps by remember { mutableStateOf<List<LauncherApp>>(emptyList()) }
     var showDrawer by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) { apps = onLoadApps() }
     BackHandler(enabled = showDrawer) { showDrawer = false }
 
     if (showDrawer) {
-        AppDrawer(apps, onLaunchApp) { showDrawer = false }
+        AppDrawer(
+            apps = apps,
+            onAppClick = onLaunchApp,
+            query = searchQuery,
+            onQueryChange = { searchQuery = it },
+            onClose = { showDrawer = false }
+        )
     } else {
         HomeScreen(
             selectedWidgetId = selectedWidgetId,
@@ -230,6 +239,20 @@ private fun HomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFF4F4F4))
+            .pointerInput(Unit) {
+                var dragDistance = 0f
+                detectVerticalDragGestures(
+                    onVerticalDrag = { change, dragAmount ->
+                        dragDistance += dragAmount
+                        change.consume()
+                    },
+                    onDragEnd = {
+                        if (dragDistance < -80f) onOpenDrawer()
+                        dragDistance = 0f
+                    },
+                    onDragCancel = { dragDistance = 0f }
+                )
+            }
             .padding(horizontal = 24.dp)
     ) {
         Column(modifier = Modifier.padding(top = 54.dp)) {
@@ -351,8 +374,15 @@ private fun ActionChip(label: String, modifier: Modifier, onClick: () -> Unit) {
 private fun AppDrawer(
     apps: List<LauncherApp>,
     onAppClick: (LauncherApp) -> Unit,
+    query: String,
+    onQueryChange: (String) -> Unit,
     onClose: () -> Unit
 ) {
+    val filteredApps = apps.filter {
+        it.label.contains(query, ignoreCase = true) ||
+            it.packageName.contains(query, ignoreCase = true)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -373,12 +403,21 @@ private fun AppDrawer(
             )
         }
         Spacer(Modifier.height(8.dp))
-        Text("${apps.size} applications", fontSize = 14.sp, color = Color(0xFF777777))
-        Spacer(Modifier.height(20.dp))
+        Text("${filteredApps.size} applications", fontSize = 14.sp, color = Color(0xFF777777))
+        Spacer(Modifier.height(12.dp))
+        androidx.compose.material3.OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            placeholder = { Text("Search apps / بحث التطبيقات") },
+            shape = RoundedCornerShape(18.dp)
+        )
+        Spacer(Modifier.height(16.dp))
 
-        if (apps.isEmpty()) {
+        if (filteredApps.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("جارٍ تحميل التطبيقات...", color = Color(0xFF555555))
+                Text(if (apps.isEmpty()) "جارٍ تحميل التطبيقات..." else "لا توجد تطبيقات مطابقة", color = Color(0xFF555555))
             }
         } else {
             LazyVerticalGrid(
@@ -387,7 +426,7 @@ private fun AppDrawer(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                items(apps, key = { "${it.packageName}/${it.activityName}" }) { app ->
+                items(filteredApps, key = { "${it.packageName}/${it.activityName}" }) { app ->
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
