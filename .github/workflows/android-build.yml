@@ -20,8 +20,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Gradle
+      # تثبيت إصدار Gradle 8.11.1 المستقر لحل مشكلة عدم التوافق
+      - name: Setup Gradle 8.11.1
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
 
       # 1. إنشاء خلفيات الـ Widgets بتصميم Nothing
       - name: Create Widget Drawables
@@ -215,7 +218,7 @@ jobs:
               android:widgetCategory="home_screen" />
           EOF
 
-      # 4. إنشاء وتحديث كود برمجيات الـ Widgets (Kotlin)
+      # 4. إنشاء كود برمجيات الـ Widgets (Kotlin)
       - name: Create NothingWidgetProviders.kt
         run: |
           mkdir -p app/src/main/java/com/nothing/launcher
@@ -283,7 +286,7 @@ jobs:
           }
           EOF
 
-      # 5. ضمان تسجيل الـ Widgets في AndroidManifest.xml تلقائياً
+      # 5. تسجيل الـ Widgets في AndroidManifest.xml
       - name: Register Receivers in AndroidManifest.xml
         run: |
           python3 - << 'EOF'
@@ -327,16 +330,14 @@ jobs:
                   print("Receivers registered successfully in AndroidManifest.xml")
           EOF
 
-      # 6. بناء وتجميع ملف APK
-      - name: Build APK with Gradle
+      # 6. بناء ملف الـ APK باستخدام إصدار Gradle 8.11 المتوافق
+      - name: Build APK with Gradle 8.11
         run: |
-          if [ ! -f "gradlew" ]; then
-            gradle wrapper
-          fi
+          gradle wrapper --gradle-version 8.11.1
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
 
-      # 7. رفع ملف الـ APK لتنزيله على هاتفك مباشرة
+      # 7. رفع ملف الـ APK لتنزيله مباشرة على هاتفك
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
