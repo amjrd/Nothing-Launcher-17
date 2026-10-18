@@ -1,699 +1,345 @@
-name: Lawnchair 16 - Nothing OS Widgets
+name: Update Nothing Launcher & Build APK
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
-
-permissions:
-  contents: read
-
-concurrency:
-  group: nothing-launcher-build-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dorg.gradle.daemon=false"
-  ANDROID_HOME: "/usr/local/lib/android/sdk"
+    branches: [ "main", "master" ]
+  workflow_dispatch:
 
 jobs:
   build:
-    name: Build Lawnchair with Nothing OS
+    name: Generate All Files & Compile APK
     runs-on: ubuntu-latest
-    timeout-minutes: 90
 
     steps:
-      - name: Checkout Workflow Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          path: project
 
-      - name: Checkout Lawnchair 16-dev
-        uses: actions/checkout@v4
-        with:
-          repository: LawnchairLauncher/lawnchair
-          ref: 16-dev
-          path: lawnchair-src
-          submodules: recursive
-          fetch-depth: 1
-
-      - name: Checkout Nothing OS Source
-        uses: actions/checkout@v4
-        with:
-          repository: amjrd/Nathing-os-5
-          ref: main
-          path: nathing-source
-          token: ${{ secrets.GH_PAT || github.token }}
-          fetch-depth: 1
-
-      - name: Checkout n0w Calendar Source
-        uses: actions/checkout@v4
-        with:
-          repository: codewec/n0w
-          ref: main
-          path: n0w-src
-        continue-on-error: true
-
-      - name: Set up Java 21
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: zulu
-          java-version: "21"
+          distribution: 'temurin'
+          java-version: '17'
 
-      - name: Accept Android SDK Licenses
-        shell: bash
-        run: |
-          mkdir -p "$ANDROID_HOME/licenses" || true
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses 2>/dev/null || true
-
-      - name: Configure Gradle Environment
-        shell: bash
-        run: |
-          echo "kotlin.allwarningsaserrors=false" >> lawnchair-src/gradle.properties
-          echo "org.gradle.warning.mode=none" >> lawnchair-src/gradle.properties
-
-      - name: Set up Gradle
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Download Official Nothing NDot-57 Font & Assets
-        shell: bash
+      # 1. إنشاء خلفيات الـ Widgets بتصميم Nothing
+      - name: Create Widget Drawables
         run: |
-          set -e
-          echo "=== تحميل وتثبيت خط NDot-57 الرسمي لـ Nothing OS ==="
-
-          ASSETS_DIR="lawnchair-src/lawnchair/src/main/assets/fonts"
-          mkdir -p "$ASSETS_DIR"
-
-          curl -sL "https://raw.githubusercontent.com/xeji01/nothingfont/main/Ndot-57.otf" -o "$ASSETS_DIR/ndot57.otf"
-
-          if [ -d "n0w-src/app/src/main/assets" ]; then
-            cp -rn n0w-src/app/src/main/assets/* "$ASSETS_DIR/.." || true
-          fi
-
-      - name: Sync Nothing OS Code
-        shell: bash
-        run: |
-          set -e
-          SRC_BASE="nathing-source/app/src/main"
-          DST_BASE="lawnchair-src/lawnchair/src"
-
-          mkdir -p "$DST_BASE/com/example"
-
-          if [ -d "$SRC_BASE/java/com/example" ]; then
-            cp -rf "$SRC_BASE/java/com/example/"* "$DST_BASE/com/example/"
-          elif [ -d "$SRC_BASE/kotlin/com/example" ]; then
-            cp -rf "$SRC_BASE/kotlin/com/example/"* "$DST_BASE/com/example/"
-          fi
-
-          LAWN_RES="lawnchair-src/lawnchair/res"
-          [ ! -d "$LAWN_RES" ] && LAWN_RES="lawnchair-src/lawnchair/src/main/res"
-
-          if [ -d "$SRC_BASE/res" ] && [ -d "$LAWN_RES" ]; then
-            for rdir in drawable drawable-hdpi drawable-xhdpi drawable-xxhdpi drawable-xxxhdpi font; do
-              if [ -d "$SRC_BASE/res/$rdir" ]; then
-                mkdir -p "$LAWN_RES/$rdir"
-                cp -rn "$SRC_BASE/res/$rdir/"* "$LAWN_RES/$rdir/" || true
-              fi
-            done
-          fi
-
-      - name: Inject Complete Nothing OS Ultimate Suite
-        shell: bash
-        run: |
-          set -e
-          echo "=== حقن حزمة ودجات Nothing OS السبعة الكاملة في Lawnchair ==="
-
-          DST_CODE="lawnchair-src/lawnchair/src/com/example/ui/components"
-          mkdir -p "$DST_CODE"
-
-          cat << 'EOF' > "$DST_CODE/NothingWidgetProviders.kt"
-          package com.example.ui.components
-
-          import android.app.PendingIntent
-          import android.appwidget.AppWidgetManager
-          import android.appwidget.AppWidgetProvider
-          import android.content.Context
-          import android.content.Intent
-          import android.content.IntentFilter
-          import android.graphics.*
-          import android.media.AudioManager
-          import android.os.BatteryManager
-          import android.provider.AlarmClock
-          import android.provider.Settings
-          import android.view.KeyEvent
-          import android.widget.RemoteViews
-          import java.text.SimpleDateFormat
-          import java.util.*
-          import kotlin.math.cos
-          import kotlin.math.sin
-
-          object NothingFontHelper {
-              private var cachedTypeface: Typeface? = null
-
-              fun getNdotFont(context: Context): Typeface {
-                  if (cachedTypeface != null) return cachedTypeface!!
-                  return try {
-                      val tf = Typeface.createFromAsset(context.assets, "fonts/ndot57.otf")
-                      cachedTypeface = tf
-                      tf
-                  } catch (e: Exception) {
-                      Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-                  }
-              }
-          }
-
-          /** 1. ساعة Nothing OS النقطية (4x2) */
-          class NothingDigitalClockWidgetProvider : AppWidgetProvider() {
-              override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-                  for (id in appWidgetIds) updateWidget(context, appWidgetManager, id)
-              }
-              companion object {
-                  fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, id: Int) {
-                      val pkg = context.packageName
-                      val layoutId = context.resources.getIdentifier("widget_nothing_container", "layout", pkg)
-                      val imgId = context.resources.getIdentifier("widget_image_view", "id", pkg)
-                      if (layoutId == 0 || imgId == 0) return
-                      val views = RemoteViews(pkg, layoutId)
-
-                      val width = 760; val height = 360
-                      val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                      val canvas = Canvas(bmp)
-
-                      val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F50D0D0D") }
-                      canvas.drawRoundRect(RectF(10f, 10f, width - 10f, height - 10f), 52f, 52f, bgPaint)
-                      val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#26FFFFFF"); style = Paint.Style.STROKE; strokeWidth = 3f }
-                      canvas.drawRoundRect(RectF(10f, 10f, width - 10f, height - 10f), 52f, 52f, borderPaint)
-
-                      val font = NothingFontHelper.getNdotFont(context)
-                      val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-                      val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.WHITE; textSize = 125f; textAlign = Paint.Align.CENTER }
-                      canvas.drawText(time, width / 2f, height / 2f + 15f, tp)
-
-                      val date = SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(Date()).uppercase()
-                      val dp = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.parseColor("#D71921"); textSize = 34f; textAlign = Paint.Align.CENTER }
-                      canvas.drawText(date, width / 2f, height / 2f + 95f, dp)
-
-                      val intent = Intent(AlarmClock.ACTION_SHOW_ALARMS).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
-                      views.setOnClickPendingIntent(imgId, PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-
-                      views.setImageViewBitmap(imgId, bmp)
-                      appWidgetManager.updateAppWidget(id, views)
-                  }
-              }
-          }
-
-          /** 2. تقويم وجدول Nothing n0w (4x2) */
-          class NothingCalendarWidgetProvider : AppWidgetProvider() {
-              override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-                  for (id in appWidgetIds) updateWidget(context, appWidgetManager, id)
-              }
-              companion object {
-                  fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, id: Int) {
-                      val pkg = context.packageName
-                      val layoutId = context.resources.getIdentifier("widget_nothing_container", "layout", pkg)
-                      val imgId = context.resources.getIdentifier("widget_image_view", "id", pkg)
-                      if (layoutId == 0 || imgId == 0) return
-                      val views = RemoteViews(pkg, layoutId)
-
-                      val width = 760; val height = 360
-                      val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                      val canvas = Canvas(bmp)
-
-                      val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F50D0D0D") }
-                      canvas.drawRoundRect(RectF(10f, 10f, width - 10f, height - 10f), 52f, 52f, bgPaint)
-                      val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#26FFFFFF"); style = Paint.Style.STROKE; strokeWidth = 3f }
-                      canvas.drawRoundRect(RectF(10f, 10f, width - 10f, height - 10f), 52f, 52f, border)
-
-                      val font = NothingFontHelper.getNdotFont(context)
-                      val cal = Calendar.getInstance()
-
-                      val day = SimpleDateFormat("dd", Locale.getDefault()).format(cal.time)
-                      val month = SimpleDateFormat("MMMM", Locale.getDefault()).format(cal.time).uppercase()
-                      val week = SimpleDateFormat("EEEE", Locale.getDefault()).format(cal.time).uppercase()
-
-                      canvas.drawText(day, 60f, 160f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.WHITE; textSize = 110f })
-                      canvas.drawText(month, 60f, 225f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.parseColor("#D71921"); textSize = 32f })
-                      canvas.drawText(week, 60f, 275f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.parseColor("#B3FFFFFF"); textSize = 26f })
-
-                      canvas.drawLine(280f, 40f, 280f, height - 40f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#26FFFFFF"); strokeWidth = 2f })
-
-                      val days = arrayOf("M", "T", "W", "T", "F", "S", "S")
-                      val curDay = (cal.get(Calendar.DAY_OF_WEEK) + 5) % 7
-                      for (i in 0 until 7) {
-                          val x = 320f + i * 58f
-                          if (i == curDay) canvas.drawCircle(x + 12f, 100f, 22f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D71921") })
-                          canvas.drawText(days[i], x + 12f, 110f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = if (i == curDay) Color.WHITE else Color.parseColor("#80FFFFFF"); textSize = 28f; textAlign = Paint.Align.CENTER })
-                          canvas.drawCircle(x + 12f, 140f, 4f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (i == curDay) Color.WHITE else Color.parseColor("#40FFFFFF") })
-                      }
-                      canvas.drawText("NO UPCOMING EVENTS", 320f, 230f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.WHITE; textSize = 30f })
-                      canvas.drawText("• YOU ARE ALL CAUGHT UP", 320f, 275f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.parseColor("#D71921"); textSize = 22f })
-
-                      val intent = Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_APP_CALENDAR); flags = Intent.FLAG_ACTIVITY_NEW_TASK }
-                      views.setOnClickPendingIntent(imgId, PendingIntent.getActivity(context, 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-
-                      views.setImageViewBitmap(imgId, bmp)
-                      appWidgetManager.updateAppWidget(id, views)
-                  }
-              }
-          }
-
-          /** 3. مشغل الموسيقى (Nothing Media Player 4x2) */
-          class NothingMediaWidgetProvider : AppWidgetProvider() {
-              override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-                  for (id in appWidgetIds) updateWidget(context, appWidgetManager, id)
-              }
-
-              override fun onReceive(context: Context, intent: Intent) {
-                  super.onReceive(context, intent)
-                  val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
-                  when (intent.action) {
-                      "ACTION_NOTHING_MEDIA_PLAY" -> {
-                          audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
-                          audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
-                      }
-                      "ACTION_NOTHING_MEDIA_NEXT" -> {
-                          audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_NEXT))
-                          audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_NEXT))
-                      }
-                      "ACTION_NOTHING_MEDIA_PREV" -> {
-                          audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS))
-                          audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS))
-                      }
-                  }
-              }
-
-              companion object {
-                  fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, id: Int) {
-                      val pkg = context.packageName
-                      val layoutId = context.resources.getIdentifier("widget_nothing_container", "layout", pkg)
-                      val imgId = context.resources.getIdentifier("widget_image_view", "id", pkg)
-                      if (layoutId == 0 || imgId == 0) return
-                      val views = RemoteViews(pkg, layoutId)
-
-                      val width = 760; val height = 360
-                      val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                      val canvas = Canvas(bmp)
-
-                      val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F50D0D0D") }
-                      canvas.drawRoundRect(RectF(10f, 10f, width - 10f, height - 10f), 52f, 52f, bgPaint)
-                      val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#26FFFFFF"); style = Paint.Style.STROKE; strokeWidth = 3f }
-                      canvas.drawRoundRect(RectF(10f, 10f, width - 10f, height - 10f), 52f, 52f, border)
-
-                      // قرص الفينيل الدوار (Nothing Turntable Vinyl)
-                      val vinylCenter = 175f
-                      val vinylY = height / 2f
-                      val vinylRadius = 120f
-                      canvas.drawCircle(vinylCenter, vinylY, vinylRadius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#FF151515") })
-                      canvas.drawCircle(vinylCenter, vinylY, vinylRadius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#40FFFFFF"); style = Paint.Style.STROKE; strokeWidth = 2f })
-                      for (r in listOf(40f, 65f, 90f)) {
-                          canvas.drawCircle(vinylCenter, vinylY, r, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#1FFFFFFF"); style = Paint.Style.STROKE; strokeWidth = 1.5f })
-                      }
-                      canvas.drawCircle(vinylCenter, vinylY, 26f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D71921") })
-                      canvas.drawCircle(vinylCenter, vinylY, 8f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
-
-                      val font = NothingFontHelper.getNdotFont(context)
-                      // تفاصيل المسار الصوتي
-                      canvas.drawText("NOTHING AUDIO", 330f, 130f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.WHITE; textSize = 38f })
-                      canvas.drawText("NOW PLAYING", 330f, 175f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.parseColor("#D71921"); textSize = 22f })
-
-                      // أزرار التحكم النقطية
-                      val btnPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.WHITE; textSize = 42f }
-                      canvas.drawText("⏮", 350f, 265f, btnPaint)
-                      canvas.drawCircle(490f, 252f, 34f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D71921") })
-                      canvas.drawText("▶", 480f, 265f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 36f })
-                      canvas.drawText("⏭", 590f, 265f, btnPaint)
-
-                      // ربط النقر لتشغيل/إيقاف الموسيقى
-                      val playIntent = Intent(context, NothingMediaWidgetProvider::class.java).apply { action = "ACTION_NOTHING_MEDIA_PLAY" }
-                      views.setOnClickPendingIntent(imgId, PendingIntent.getBroadcast(context, 10, playIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-
-                      views.setImageViewBitmap(imgId, bmp)
-                      appWidgetManager.updateAppWidget(id, views)
-                  }
-              }
-          }
-
-          /** 4. ودجت سماعات Nothing Ear الذكية (4x2) */
-          class NothingEarbudsWidgetProvider : AppWidgetProvider() {
-              override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-                  for (id in appWidgetIds) updateWidget(context, appWidgetManager, id)
-              }
-              companion object {
-                  fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, id: Int) {
-                      val pkg = context.packageName
-                      val layoutId = context.resources.getIdentifier("widget_nothing_container", "layout", pkg)
-                      val imgId = context.resources.getIdentifier("widget_image_view", "id", pkg)
-                      if (layoutId == 0 || imgId == 0) return
-                      val views = RemoteViews(pkg, layoutId)
-
-                      val width = 760; val height = 360
-                      val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                      val canvas = Canvas(bmp)
-
-                      val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F50D0D0D") }
-                      canvas.drawRoundRect(RectF(10f, 10f, width - 10f, height - 10f), 52f, 52f, bgPaint)
-                      val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#26FFFFFF"); style = Paint.Style.STROKE; strokeWidth = 3f }
-                      canvas.drawRoundRect(RectF(10f, 10f, width - 10f, height - 10f), 52f, 52f, border)
-
-                      val font = NothingFontHelper.getNdotFont(context)
-                      canvas.drawText("NOTHING EAR", 60f, 85f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.WHITE; textSize = 32f })
-                      canvas.drawText("• CONNECTED", 60f, 120f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.parseColor("#D71921"); textSize = 20f })
-
-                      // 1. اليسار Left
-                      val lx = 140f
-                      canvas.drawCircle(lx, 220f, 55f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#1AFFFFFF") })
-                      canvas.drawCircle(lx, 220f, 55f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#40FFFFFF"); style = Paint.Style.STROKE; strokeWidth = 3f })
-                      canvas.drawCircle(lx, 185f, 6f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }) // Left = White
-                      canvas.drawText("85%", lx, 230f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.WHITE; textSize = 34f; textAlign = Paint.Align.CENTER })
-                      canvas.drawText("L", lx, 305f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.parseColor("#80FFFFFF"); textSize = 24f; textAlign = Paint.Align.CENTER })
-
-                      // 2. اليمين Right (مع النقطة الحمراء الأصلية لـ Nothing Ear)
-                      val rx = 380f
-                      canvas.drawCircle(rx, 220f, 55f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#1AFFFFFF") })
-                      canvas.drawCircle(rx, 220f, 55f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#40FFFFFF"); style = Paint.Style.STROKE; strokeWidth = 3f })
-                      canvas.drawCircle(rx, 185f, 6f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D71921") }) // Right = Red
-                      canvas.drawText("90%", rx, 230f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.WHITE; textSize = 34f; textAlign = Paint.Align.CENTER })
-                      canvas.drawText("R", rx, 305f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.parseColor("#80FFFFFF"); textSize = 24f; textAlign = Paint.Align.CENTER })
-
-                      // 3. العلبة Case
-                      val cx = 620f
-                      canvas.drawRoundRect(RectF(cx - 50f, 170f, cx + 50f, 270f), 28f, 28f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#1AFFFFFF") })
-                      canvas.drawRoundRect(RectF(cx - 50f, 170f, cx + 50f, 270f), 28f, 28f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#40FFFFFF"); style = Paint.Style.STROKE; strokeWidth = 3f })
-                      canvas.drawText("100%", cx, 230f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.WHITE; textSize = 32f; textAlign = Paint.Align.CENTER })
-                      canvas.drawText("CASE", cx, 305f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.parseColor("#80FFFFFF"); textSize = 22f; textAlign = Paint.Align.CENTER })
-
-                      val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
-                      views.setOnClickPendingIntent(imgId, PendingIntent.getActivity(context, 11, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-
-                      views.setImageViewBitmap(imgId, bmp)
-                      appWidgetManager.updateAppWidget(id, views)
-                  }
-              }
-          }
-
-          /** 5. ودجت الساعة الذكية (Nothing Smartwatch 2x2) */
-          class NothingWatchWidgetProvider : AppWidgetProvider() {
-              override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-                  for (id in appWidgetIds) updateWidget(context, appWidgetManager, id)
-              }
-              companion object {
-                  fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, id: Int) {
-                      val pkg = context.packageName
-                      val layoutId = context.resources.getIdentifier("widget_nothing_container", "layout", pkg)
-                      val imgId = context.resources.getIdentifier("widget_image_view", "id", pkg)
-                      if (layoutId == 0 || imgId == 0) return
-                      val views = RemoteViews(pkg, layoutId)
-
-                      val size = 420
-                      val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-                      val canvas = Canvas(bmp)
-
-                      val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F50D0D0D") }
-                      canvas.drawRoundRect(RectF(10f, 10f, size - 10f, size - 10f), 52f, 52f, bgPaint)
-                      val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#26FFFFFF"); style = Paint.Style.STROKE; strokeWidth = 3f }
-                      canvas.drawRoundRect(RectF(10f, 10f, size - 10f, size - 10f), 52f, 52f, border)
-
-                      val center = size / 2f
-                      val ringRadius = 140f
-                      val totalDots = 20
-                      val filledDots = 16 // 80%
-
-                      for (i in 0 until totalDots) {
-                          val angle = Math.toRadians((i * (360.0 / totalDots) - 90).toDouble())
-                          val dx = center + ringRadius * cos(angle).toFloat()
-                          val dy = center + ringRadius * sin(angle).toFloat()
-                          val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (i < filledDots) Color.parseColor("#D71921") else Color.parseColor("#20FFFFFF") }
-                          canvas.drawCircle(dx, dy, 7.5f, dotPaint)
-                      }
-
-                      val font = NothingFontHelper.getNdotFont(context)
-                      canvas.drawText("80%", center, center + 20f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.WHITE; textSize = 68f; textAlign = Paint.Align.CENTER })
-                      canvas.drawText("WATCH", center, center + 75f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.parseColor("#D71921"); textSize = 24f; textAlign = Paint.Align.CENTER })
-
-                      val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
-                      views.setOnClickPendingIntent(imgId, PendingIntent.getActivity(context, 12, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-
-                      views.setImageViewBitmap(imgId, bmp)
-                      appWidgetManager.updateAppWidget(id, views)
-                  }
-              }
-          }
-
-          /** 6. بطارية الهاتف (2x2) */
-          class NothingBatteryWidgetProvider : AppWidgetProvider() {
-              override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-                  for (id in appWidgetIds) updateWidget(context, appWidgetManager, id)
-              }
-              companion object {
-                  fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, id: Int) {
-                      val pkg = context.packageName
-                      val layoutId = context.resources.getIdentifier("widget_nothing_container", "layout", pkg)
-                      val imgId = context.resources.getIdentifier("widget_image_view", "id", pkg)
-                      if (layoutId == 0 || imgId == 0) return
-                      val views = RemoteViews(pkg, layoutId)
-
-                      val size = 420
-                      val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-                      val canvas = Canvas(bmp)
-
-                      val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F50D0D0D") }
-                      canvas.drawRoundRect(RectF(10f, 10f, size - 10f, size - 10f), 52f, 52f, bgPaint)
-                      val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#26FFFFFF"); style = Paint.Style.STROKE; strokeWidth = 3f }
-                      canvas.drawRoundRect(RectF(10f, 10f, size - 10f, size - 10f), 52f, 52f, border)
-
-                      val batteryStatus = IntentFilter(Intent.ACTION_BATTERY_CHANGED).let { filter -> context.applicationContext.registerReceiver(null, filter) }
-                      val level = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: 80
-                      val scale = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: 100
-                      val batteryPct = ((level / scale.toFloat()) * 100).toInt()
-
-                      val center = size / 2f
-                      val ringRadius = 140f
-                      val totalDots = 24
-                      val filledDots = (totalDots * (batteryPct / 100f)).toInt()
-
-                      for (i in 0 until totalDots) {
-                          val angle = Math.toRadians((i * (360.0 / totalDots) - 90).toDouble())
-                          val dx = center + ringRadius * cos(angle).toFloat()
-                          val dy = center + ringRadius * sin(angle).toFloat()
-                          val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (i < filledDots) (if (batteryPct <= 20) Color.parseColor("#D71921") else Color.WHITE) else Color.parseColor("#20FFFFFF") }
-                          canvas.drawCircle(dx, dy, 7.5f, dotPaint)
-                      }
-
-                      val font = NothingFontHelper.getNdotFont(context)
-                      canvas.drawText("$batteryPct%", center, center + 22f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.WHITE; textSize = 68f; textAlign = Paint.Align.CENTER })
-                      canvas.drawText("PHONE", center, center + 75f, Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = font; color = Color.parseColor("#D71921"); textSize = 24f; textAlign = Paint.Align.CENTER })
-
-                      val intent = Intent(Intent.ACTION_POWER_USAGE_SUMMARY).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
-                      views.setOnClickPendingIntent(imgId, PendingIntent.getActivity(context, 2, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-
-                      views.setImageViewBitmap(imgId, bmp)
-                      appWidgetManager.updateAppWidget(id, views)
-                  }
-              }
-          }
-
-          /** 7. الساعة التناظرية الفخمة (2x2) */
-          class NothingAnalogClockWidgetProvider : AppWidgetProvider() {
-              override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-                  for (id in appWidgetIds) updateAnalog(context, appWidgetManager, id)
-              }
-              companion object {
-                  fun updateAnalog(context: Context, appWidgetManager: AppWidgetManager, id: Int) {
-                      val pkg = context.packageName
-                      val layoutId = context.resources.getIdentifier("widget_nothing_container", "layout", pkg)
-                      val imgId = context.resources.getIdentifier("widget_image_view", "id", pkg)
-                      if (layoutId == 0 || imgId == 0) return
-                      val views = RemoteViews(pkg, layoutId)
-
-                      val size = 420
-                      val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-                      val canvas = Canvas(bmp)
-                      val center = size / 2f
-                      val radius = size / 2f - 24f
-
-                      canvas.drawCircle(center, center, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F50D0D0D") })
-                      canvas.drawCircle(center, center, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#33FFFFFF"); style = Paint.Style.STROKE; strokeWidth = 3f })
-
-                      for (i in 0 until 60) {
-                          val angle = Math.toRadians((i * 6).toDouble())
-                          val dx = center + (radius - 22f) * sin(angle).toFloat()
-                          val dy = center - (radius - 22f) * cos(angle).toFloat()
-                          val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (i == 0) Color.parseColor("#D71921") else if (i % 5 == 0) Color.WHITE else Color.parseColor("#26FFFFFF") }
-                          canvas.drawCircle(dx, dy, if (i % 5 == 0) 5.5f else 2.5f, p)
-                      }
-
-                      val cal = Calendar.getInstance()
-                      val h = cal.get(Calendar.HOUR)
-                      val m = cal.get(Calendar.MINUTE)
-                      val hAngle = Math.toRadians(((h + m / 60f) * 30).toDouble())
-                      val mAngle = Math.toRadians((m * 6).toDouble())
-
-                      canvas.drawLine(center, center, center + 95f * sin(hAngle).toFloat(), center - 95f * cos(hAngle).toFloat(), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; strokeWidth = 10f; strokeCap = Paint.Cap.ROUND })
-                      canvas.drawLine(center, center, center + 140f * sin(mAngle).toFloat(), center - 140f * cos(mAngle).toFloat(), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D71921"); strokeWidth = 6f; strokeCap = Paint.Cap.ROUND })
-                      canvas.drawCircle(center, center, 10f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
-                      canvas.drawCircle(center, center, 4f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D71921") })
-
-                      val intent = Intent(AlarmClock.ACTION_SHOW_ALARMS).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
-                      views.setOnClickPendingIntent(imgId, PendingIntent.getActivity(context, 3, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-
-                      views.setImageViewBitmap(imgId, bmp)
-                      appWidgetManager.updateAppWidget(id, views)
-                  }
-              }
-          }
+          mkdir -p app/src/main/res/drawable
+
+          cat << 'EOF' > app/src/main/res/drawable/bg_nothing_widget.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#161616" />
+              <stroke android:width="1dp" android:color="#333333" />
+              <corners android:radius="24dp" />
+          </shape>
           EOF
 
-          # 2. إنشاء ملفات الـ XML للودجات
-          LAWN_RES="lawnchair-src/lawnchair/res"
-          [ ! -d "$LAWN_RES" ] && LAWN_RES="lawnchair-src/lawnchair/src/main/res"
+          cat << 'EOF' > app/src/main/res/drawable/bg_nothing_widget_circle.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+              <solid android:color="#161616" />
+              <stroke android:width="1.5dp" android:color="#333333" />
+          </shape>
+          EOF
 
-          mkdir -p "$LAWN_RES/layout" "$LAWN_RES/xml"
+      # 2. إنشاء واجهات الـ Widgets الحية (الساعة الرقمية والتناظرية والحاوية)
+      - name: Create Widget Layouts
+        run: |
+          mkdir -p app/src/main/res/layout
 
-          cat << 'EOF' > "$LAWN_RES/layout/widget_nothing_container.xml"
+          cat << 'EOF' > app/src/main/res/layout/widget_nothing_container.xml
           <?xml version="1.0" encoding="utf-8"?>
           <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:id="@+id/widget_container"
               android:layout_width="match_parent"
               android:layout_height="match_parent"
-              android:padding="2dp">
-              <ImageView
-                  android:id="@+id/widget_image_view"
+              android:background="@drawable/bg_nothing_widget"
+              android:padding="16dp">
+
+              <LinearLayout
                   android:layout_width="match_parent"
                   android:layout_height="match_parent"
-                  android:scaleType="fitCenter" />
+                  android:gravity="center"
+                  android:orientation="vertical">
+
+                  <TextView
+                      android:id="@+id/widget_title"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="NOTHING"
+                      android:textColor="#D71920"
+                      android:textSize="12sp"
+                      android:textStyle="bold"
+                      android:letterSpacing="0.2" />
+
+                  <TextClock
+                      android:id="@+id/widget_content"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="4dp"
+                      android:format12Hour="hh:mm"
+                      android:format24Hour="HH:mm"
+                      android:textColor="#FFFFFF"
+                      android:textSize="28sp"
+                      android:textStyle="bold" />
+              </LinearLayout>
           </FrameLayout>
           EOF
 
-          for w in digital_clock calendar media earbuds; do
-            cat << EOF > "$LAWN_RES/xml/nothing_${w}_info.xml"
+          cat << 'EOF' > app/src/main/res/layout/widget_nothing_digital_clock.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:id="@+id/widget_digital_root"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="@drawable/bg_nothing_widget"
+              android:gravity="center"
+              android:orientation="vertical"
+              android:padding="16dp">
+
+              <LinearLayout
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:gravity="center_vertical"
+                  android:orientation="horizontal">
+                  <View
+                      android:layout_width="6dp"
+                      android:layout_height="6dp"
+                      android:layout_marginEnd="6dp"
+                      android:background="#D71920" />
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="NOTHING CLOCK"
+                      android:textColor="#AAAAAA"
+                      android:textSize="11sp"
+                      android:textStyle="bold" />
+              </LinearLayout>
+
+              <TextClock
+                  android:id="@+id/clock_time"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:format12Hour="hh:mm"
+                  android:format24Hour="HH:mm"
+                  android:textColor="#FFFFFF"
+                  android:textSize="36sp"
+                  android:textStyle="bold" />
+
+              <TextClock
+                  android:id="@+id/clock_date"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:format12Hour="EEE, MMM d"
+                  android:format24Hour="EEE, MMM d"
+                  android:textColor="#9E9E9E"
+                  android:textSize="12sp" />
+          </LinearLayout>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/layout/widget_nothing_analog_clock.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:id="@+id/widget_analog_root"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="@drawable/bg_nothing_widget_circle"
+              android:padding="16dp">
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  android:gravity="center"
+                  android:orientation="vertical">
+
+                  <TextClock
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:format12Hour="hh:mm"
+                      android:format24Hour="HH:mm"
+                      android:textColor="#FFFFFF"
+                      android:textSize="26sp"
+                      android:textStyle="bold" />
+
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:letterSpacing="0.2"
+                      android:text="NOTHING"
+                      android:textColor="#D71920"
+                      android:textSize="10sp"
+                      android:textStyle="bold" />
+
+                  <TextClock
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:format12Hour="EEE d"
+                      android:format24Hour="EEE d"
+                      android:textColor="#888888"
+                      android:textSize="11sp" />
+              </LinearLayout>
+          </FrameLayout>
+          EOF
+
+      # 3. إنشاء ملفات إعدادات AppWidget لنظام أندرويد
+      - name: Create Widget XML Info
+        run: |
+          mkdir -p app/src/main/res/xml
+
+          cat << 'EOF' > app/src/main/res/xml/nothing_digital_clock_info.xml
           <?xml version="1.0" encoding="utf-8"?>
           <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-              android:minWidth="240dp"
-              android:minHeight="110dp"
-              android:targetCellWidth="4"
+              android:minWidth="160dp"
+              android:minHeight="80dp"
+              android:targetCellWidth="3"
               android:targetCellHeight="2"
-              android:updatePeriodMillis="60000"
-              android:initialLayout="@layout/widget_nothing_container"
+              android:updatePeriodMillis="1800000"
+              android:initialLayout="@layout/widget_nothing_digital_clock"
               android:resizeMode="horizontal|vertical"
               android:widgetCategory="home_screen" />
           EOF
-          done
 
-          for w in battery analog_clock watch; do
-            cat << EOF > "$LAWN_RES/xml/nothing_${w}_info.xml"
+          cat << 'EOF' > app/src/main/res/xml/nothing_analog_clock_info.xml
           <?xml version="1.0" encoding="utf-8"?>
           <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
               android:minWidth="140dp"
               android:minHeight="140dp"
               android:targetCellWidth="2"
               android:targetCellHeight="2"
-              android:updatePeriodMillis="60000"
-              android:initialLayout="@layout/widget_nothing_container"
+              android:updatePeriodMillis="1800000"
+              android:initialLayout="@layout/widget_nothing_analog_clock"
               android:resizeMode="horizontal|vertical"
               android:widgetCategory="home_screen" />
           EOF
-          done
 
-          # 3. تسجيل الودجات السبعة في AndroidManifest.xml
-          MANIFEST=$(find lawnchair-src/lawnchair -name "AndroidManifest.xml" | head -n 1)
-          if [ -f "$MANIFEST" ]; then
-            python3 -c '
-          import sys
-
-          path = sys.argv[1]
-          with open(path, "r", encoding="utf-8") as f:
-              content = f.read()
-
-          receivers = """
-              <!-- Nothing OS & n0w 7 Ultimate Widgets Suite -->
-              <receiver android:name="com.example.ui.components.NothingDigitalClockWidgetProvider"
-                  android:label="Nothing NDot Clock (4x2)" android:exported="true">
-                  <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
-                  <meta-data android:name="android.appwidget.provider" android:resource="@xml/nothing_digital_clock_info" />
-              </receiver>
-
-              <receiver android:name="com.example.ui.components.NothingCalendarWidgetProvider"
-                  android:label="Nothing n0w Calendar (4x2)" android:exported="true">
-                  <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
-                  <meta-data android:name="android.appwidget.provider" android:resource="@xml/nothing_calendar_info" />
-              </receiver>
-
-              <receiver android:name="com.example.ui.components.NothingMediaWidgetProvider"
-                  android:label="Nothing Media Player (4x2)" android:exported="true">
-                  <intent-filter>
-                      <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                      <action android:name="ACTION_NOTHING_MEDIA_PLAY" />
-                      <action android:name="ACTION_NOTHING_MEDIA_NEXT" />
-                      <action android:name="ACTION_NOTHING_MEDIA_PREV" />
-                  </intent-filter>
-                  <meta-data android:name="android.appwidget.provider" android:resource="@xml/nothing_media_info" />
-              </receiver>
-
-              <receiver android:name="com.example.ui.components.NothingEarbudsWidgetProvider"
-                  android:label="Nothing Earbuds Battery (4x2)" android:exported="true">
-                  <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
-                  <meta-data android:name="android.appwidget.provider" android:resource="@xml/nothing_earbuds_info" />
-              </receiver>
-
-              <receiver android:name="com.example.ui.components.NothingWatchWidgetProvider"
-                  android:label="Nothing Smartwatch (2x2)" android:exported="true">
-                  <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
-                  <meta-data android:name="android.appwidget.provider" android:resource="@xml/nothing_watch_info" />
-              </receiver>
-
-              <receiver android:name="com.example.ui.components.NothingBatteryWidgetProvider"
-                  android:label="Nothing Phone Battery (2x2)" android:exported="true">
-                  <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
-                  <meta-data android:name="android.appwidget.provider" android:resource="@xml/nothing_battery_info" />
-              </receiver>
-
-              <receiver android:name="com.example.ui.components.NothingAnalogClockWidgetProvider"
-                  android:label="Nothing Analog Dial (2x2)" android:exported="true">
-                  <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
-                  <meta-data android:name="android.appwidget.provider" android:resource="@xml/nothing_analog_clock_info" />
-              </receiver>
-          """
-
-          if "</application>" in content:
-              content = content.replace("</application>", receivers + "\n</application>")
-              with open(path, "w", encoding="utf-8") as f:
-                  f.write(content)
-              print("تم حقن ودجات Nothing OS السبعة بنجاح.")
-          ' "$MANIFEST"
-          fi
-
-      - name: Build Launcher APK
-        working-directory: lawnchair-src
-        shell: bash
+      # 4. إنشاء وتحديث كود برمجيات الـ Widgets (Kotlin)
+      - name: Create NothingWidgetProviders.kt
         run: |
-          set -o pipefail
+          mkdir -p app/src/main/java/com/nothing/launcher
+
+          cat << 'EOF' > app/src/main/java/com/nothing/launcher/NothingWidgetProviders.kt
+          package com.nothing.launcher
+
+          import android.app.PendingIntent
+          import android.appwidget.AppWidgetManager
+          import android.appwidget.AppWidgetProvider
+          import android.content.Context
+          import android.content.Intent
+          import android.widget.RemoteViews
+
+          class NothingDigitalClockWidgetProvider : AppWidgetProvider() {
+              override fun onUpdate(
+                  context: Context,
+                  appWidgetManager: AppWidgetManager,
+                  appWidgetIds: IntArray
+              ) {
+                  for (appWidgetId in appWidgetIds) {
+                      val intent = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: Intent()
+                      val pendingIntent = PendingIntent.getActivity(
+                          context,
+                          0,
+                          intent,
+                          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                      )
+                      val resId = context.resources.getIdentifier("widget_nothing_digital_clock", "layout", context.packageName)
+                      val rootId = context.resources.getIdentifier("widget_digital_root", "id", context.packageName)
+                      if (resId != 0) {
+                          val views = RemoteViews(context.packageName, resId).apply {
+                              if (rootId != 0) setOnClickPendingIntent(rootId, pendingIntent)
+                          }
+                          appWidgetManager.updateAppWidget(appWidgetId, views)
+                      }
+                  }
+              }
+          }
+
+          class NothingAnalogClockWidgetProvider : AppWidgetProvider() {
+              override fun onUpdate(
+                  context: Context,
+                  appWidgetManager: AppWidgetManager,
+                  appWidgetIds: IntArray
+              ) {
+                  for (appWidgetId in appWidgetIds) {
+                      val intent = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: Intent()
+                      val pendingIntent = PendingIntent.getActivity(
+                          context,
+                          1,
+                          intent,
+                          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                      )
+                      val resId = context.resources.getIdentifier("widget_nothing_analog_clock", "layout", context.packageName)
+                      val rootId = context.resources.getIdentifier("widget_analog_root", "id", context.packageName)
+                      if (resId != 0) {
+                          val views = RemoteViews(context.packageName, resId).apply {
+                              if (rootId != 0) setOnClickPendingIntent(rootId, pendingIntent)
+                          }
+                          appWidgetManager.updateAppWidget(appWidgetId, views)
+                      }
+                  }
+              }
+          }
+          EOF
+
+      # 5. ضمان تسجيل الـ Widgets في AndroidManifest.xml تلقائياً
+      - name: Register Receivers in AndroidManifest.xml
+        run: |
+          python3 - << 'EOF'
+          import os
+
+          manifest_path = "app/src/main/AndroidManifest.xml"
+          if os.path.exists(manifest_path):
+              with open(manifest_path, "r", encoding="utf-8") as f:
+                  content = f.read()
+
+              receiver_block = """
+                  <receiver
+                      android:name="com.nothing.launcher.NothingDigitalClockWidgetProvider"
+                      android:exported="true"
+                      android:label="Nothing Digital Clock">
+                      <intent-filter>
+                          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.appwidget.provider"
+                          android:resource="@xml/nothing_digital_clock_info" />
+                  </receiver>
+
+                  <receiver
+                      android:name="com.nothing.launcher.NothingAnalogClockWidgetProvider"
+                      android:exported="true"
+                      android:label="Nothing Analog Clock">
+                      <intent-filter>
+                          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.appwidget.provider"
+                          android:resource="@xml/nothing_analog_clock_info" />
+                  </receiver>
+              """
+
+              if "NothingDigitalClockWidgetProvider" not in content and "</application>" in content:
+                  content = content.replace("</application>", receiver_block + "\n    </application>")
+                  with open(manifest_path, "w", encoding="utf-8") as f:
+                      f.write(content)
+                  print("Receivers registered successfully in AndroidManifest.xml")
+          EOF
+
+      # 6. بناء وتجميع ملف APK
+      - name: Build APK with Gradle
+        run: |
+          if [ ! -f "gradlew" ]; then
+            gradle wrapper
+          fi
           chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
 
-          TASK="assembleLawnWithQuickstepGithubDebug"
-          if ! ./gradlew tasks --all | grep -q "$TASK"; then
-            TASK="assembleLawnWithQuickstepDebug"
-          fi
-          if ! ./gradlew tasks --all | grep -q "$TASK"; then
-            TASK="assembleDebug"
-          fi
-
-          echo "تنفيذ المهمة: $TASK"
-          ./gradlew --no-daemon --stacktrace --console=plain $TASK 2>&1 | tee "$GITHUB_WORKSPACE/build-full.log"
-
-      - name: Upload Launcher APK
-        if: success()
+      # 7. رفع ملف الـ APK لتنزيله على هاتفك مباشرة
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Lawnchair-16-Nothing-Ultimate-APK
-          path: lawnchair-src/**/build/outputs/apk/**/*.apk
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload Build Diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Build-Diagnostics
-          path: build-full.log
-          if-no-files-found: warn
+          name: Nothing-Launcher-APK
+          path: app/build/outputs/apk/debug/*.apk
           retention-days: 14
