@@ -28,9 +28,31 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-
         </activity>
 
-    </application>
+        <receiver
+            android:name=".NothingDigitalClockWidgetProvider"
+            android:label="Nothing Digital Clock"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/nothing_digital_clock_info" />
+        </receiver>
 
+        <receiver
+            android:name=".NothingAnalogClockWidgetProvider"
+            android:label="Nothing Analog Clock"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/nothing_analog_clock_info" />
+        </receiver>
+
+    </application>
 </manifest>
