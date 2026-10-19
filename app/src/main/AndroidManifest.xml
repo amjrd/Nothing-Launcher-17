@@ -1,22 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LAUNCHER" />
-        </intent>
-    </queries>
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <application
         android:allowBackup="false"
-        android:label="Nothing Launcher"
+        android:label="Nothing Launcher 17"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
-            android:name="com.nothing.launcher.MainActivity"
-            android:exported="true">
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="Nothing Launcher"
+            android:screenOrientation="unspecified">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -24,35 +26,8 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
-        <receiver
-            android:name=".NothingDigitalClockWidgetProvider"
-            android:label="Nothing Digital Clock"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/nothing_digital_clock_info" />
-        </receiver>
-
-        <receiver
-            android:name=".NothingAnalogClockWidgetProvider"
-            android:label="Nothing Analog Clock"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/nothing_analog_clock_info" />
-        </receiver>
-
     </application>
+
 </manifest>
